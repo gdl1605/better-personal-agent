@@ -2,6 +2,9 @@
 __pycache__/
 *.pyc
 .venv/
+.env
+.env.*
+!.env.example
 /PersonalContext/
 /raw/
 /agent-context/

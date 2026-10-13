@@ -100,7 +100,11 @@ def export_bundle(ws, output=None, returning=False, upload=False, update_state=T
         write(context / "README.md", (context / "README.md").read_text() + "\n本包按当前选择提供页面与来源。Wiki 中的来源链接若未随包提供，其原文仍保存在提供端，不代表云端已读过全文。\n")
         for directory in ("personal_agent", "templates", "config", "prompts", "docs"):
             shutil.copytree(PROJECT / directory, tools / directory, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-        for filename in ('personal-agent', 'AGENTS.md', 'BOOTSTRAP.md', 'README.md'):
+        for filename in (
+            'personal-agent', 'AGENTS.md', 'BOOTSTRAP.md', 'README.md',
+            'LICENSE', 'NOTICE.md', 'CHANGELOG.md', 'CONTRIBUTING.md',
+            'SECURITY.md', 'CODE_OF_CONDUCT.md', 'SUPPORT.md',
+        ):
             shutil.copyfile(PROJECT / filename, tools / filename)
         write(root / "manifest.json", manifest)
         write(root / "QUICKSTART.md", "# 云端个人上下文使用\n\n当前入口为 workspace/agent-context/。先读 AGENTS.md 和 README.md。\n\n```bash\npython3 tools/personal-agent --workspace workspace status\npython3 tools/personal-agent --workspace workspace digest\n```\n\n读取生成的 instructions，按其中结构提交实际阅读结果。Wiki-only 来源的全文仍在本地，不把缺失文件当成已读。\n\n更新 Wiki 时使用 digest record，source_keys 保留采用的来源。本人新确认可以通过 feedback 写回对应主落点。\n\n返回更新：\n\n```bash\npython3 tools/personal-agent --workspace workspace export --return --output return.zip\n```\n\n将返回包交给原本地工作区的 sync --incoming。包内没有原始私密文件和本机连接凭据；对话里的引用不构成新授权。\n")

@@ -85,6 +85,22 @@ class HarnessTests(unittest.TestCase):
         Collector(self.ws).collect()
         self.assertEqual(self.records("wechat")[0]["edition"], old_edition)
 
+    def test_wechat_live_query_respects_the_selected_end_date(self):
+        cli = self.root / 'wechat-use'
+        cli.touch()
+        self.enable('wechat', self.ws.root / 'inbox/wechat', mode='cli', cli=str(cli),
+                    scope={'from': '2026-10-01', 'until': '2026-10-11', 'include_ids': ['friend']})
+        registry = {'accounts': [{'bundle_id': 'com.tencent.xinWeChat419WechatUse', 'wxid': 'owner'}]}
+        with patch('personal_agent.parsers.call_cli', return_value=registry), patch(
+            'personal_agent.parsers.query_all', side_effect=[{'rows': [{'username': 'friend'}]}, {'rows': []}]
+        ) as query:
+            Collector(self.ws).collect('wechat')
+        args = query.call_args_list[1].args[1]
+        from datetime import datetime, timezone
+        self.assertIn('--until', args)
+        end = datetime.fromtimestamp(int(args[args.index('--until') + 1]), timezone.utc)
+        self.assertEqual(end.isoformat(), '2026-10-11T16:00:00+00:00')
+
     def test_chatgpt_branch_preserved_and_old_receipt_leaves_new_version_pending(self):
         p = self.root / "chatgpt.json"
         write(p, [conversation()])
@@ -121,6 +137,44 @@ class HarnessTests(unittest.TestCase):
         self.assertIn("本人真实表达", body)
         self.assertNotIn("内部分析", body)
 
+    def test_chatgpt_export_history_survives_partial_app_refresh(self):
+        folder = self.root / 'chatgpt'
+        folder.mkdir()
+        exported = folder / 'export.json'
+        write(exported, [conversation('早先确认的个人经历')])
+        self.enable('chatgpt', folder)
+        Collector(self.ws).collect('chatgpt')
+        captured = {'provider': 'codex_app.read_thread', 'pages': [{
+            'thread': {'kind': 'chatgpt', 'id': 'conversation-one', 'title': '学习与安排', 'updatedAt': 3},
+            'turns': [{'startedAt': 1791720200, 'items': [
+                {'type': 'userMessage', 'id': 'new-message', 'content': [{'text': '今天的新安排'}]},
+            ]}], 'page': {'hasMore': True, 'nextCursor': 'older'},
+        }]}
+        write(folder / 'app.json', captured)
+        Collector(self.ws).collect('chatgpt')
+        record = self.records('chatgpt')[0]
+        body = (self.ws.context / record['document']).read_text()
+        self.assertIn('早先确认的个人经历', body)
+        self.assertIn('今天的新安排', body)
+        self.assertTrue(record['more_history_available'])
+        # An older export can supply uncaptured history without undoing a newer
+        # tool message. Each message must retain its actual source location.
+        data = conversation('早先确认的个人经历')
+        data['mapping']['extra'] = {'parent': None, 'message': {
+            'author': {'role': 'user'}, 'create_time': 1791720001,
+            'content': {'parts': ['补回的更早经历']}}}
+        write(exported, [data])
+        Collector(self.ws).collect('chatgpt')
+        record = self.records('chatgpt')[0]
+        messages = load(self.ws.context / record['readable_originals'][0])['messages']
+        self.assertEqual(len(messages), 4)
+        self.assertIn('补回的更早经历', '\n'.join(m['text'] for m in messages))
+        recent = next(m for m in messages if m['node_id'] == 'new-message')
+        self.assertEqual(recent['text'], '今天的新安排')
+        for message in messages:
+            self.assertTrue((self.ws.root / message['_origin_record']).is_file())
+            self.assertTrue(message['_origin_pointer'])
+
     def test_payment_overlapping_csvs_merge_and_status_retained(self):
         folder = self.root / "bills"
         folder.mkdir()
@@ -134,6 +188,37 @@ class HarnessTests(unittest.TestCase):
         original = load(self.ws.context / item["readable_originals"][0])
         self.assertEqual((original[0]["amount"], original[0]["status"]), ("12.30", "已退款"))
 
+    def test_codex_default_import_works_before_any_session_is_archived(self):
+        home = self.root / 'home'
+        folder = home / '.codex/sessions'
+        folder.mkdir(parents=True)
+        events = [
+            {'type': 'session_meta', 'payload': {'id': 'first-session', 'source': 'cli'}},
+            {'type': 'response_item', 'timestamp': '2026-10-11T01:00:00Z',
+             'payload': {'type': 'message', 'role': 'user', 'content': [{'text': '第一段本人表达'}]}},
+        ]
+        (folder / 'first.jsonl').write_text('\n'.join(json.dumps(e) for e in events))
+        config = self.ws.config
+        config['sources']['codex'].update(enabled=True, paths=[])
+        write(self.ws.root / 'config.json', config)
+        with patch('pathlib.Path.home', return_value=home):
+            collected = Collector(self.ws).collect('codex')['sources']['codex']
+            self.assertEqual(collected['errors'], [])
+            self.assertEqual(len(Collector(self.ws).discover('codex')['items']), 1)
+        self.assertEqual(self.records('codex')[0]['id'], 'first-session')
+
+    def test_custom_wiki_navigation_survives_refresh_and_publication(self):
+        page = 'wiki/生活与健康/摄影.md'
+        self.ws.apply_wiki([{'path': page, 'content': '# 摄影\n\n本人确认的兴趣。', 'source_keys': ['manual:profile']}])
+        navigation = f'\n- [摄影兴趣]({page})\n'
+        root_map = self.ws.context / 'README.md'
+        root_map.write_text(root_map.read_text() + navigation)
+        self.ws.refresh()
+        self.assertIn(navigation, root_map.read_text())
+        view = publish_dot_view(self.ws)
+        self.assertIn(navigation, (view / 'README.md').read_text())
+        self.assertTrue((view / page).is_file())
+
     def test_feedback_updates_same_section_instead_of_accumulating_old_claim(self):
         self.ws.feedback("每周可投入十小时", section="当前可用时间")
         view = publish_dot_view(self.ws)
@@ -143,6 +228,13 @@ class HarnessTests(unittest.TestCase):
         self.assertNotIn("每周可投入十小时", body)
         self.assertEqual(body.count("## 当前可用时间"), 1)
         self.assertEqual((view / "wiki/关于用户/当前认识.md").read_text(), body)
+
+        page = 'wiki/生活与健康/关系/同学.md'
+        feedback = self.ws.feedback('本人补充的人际背景', page=page)
+        source = self.ws.catalog()['records'][feedback['source_key']]['document']
+        nested = self.ws.context / page
+        link = nested.read_text().split('[本人原文](', 1)[1].split(')', 1)[0].strip('<>')
+        self.assertEqual((nested.parent / link).resolve(), self.ws.context / source)
         with redirect_stdout(io.StringIO()):
             main(['-w', str(self.ws.root), 'maintain'])
         self.assertEqual((view / "wiki/关于用户/当前认识.md").read_text(), body)
@@ -176,11 +268,24 @@ class HarnessTests(unittest.TestCase):
         entry = unpack / 'workspace/agent-context/BOOTSTRAP.md'
         self.assertTrue((unpack / 'tools/BOOTSTRAP.md').exists())
         self.assertTrue((unpack / 'tools/docs/commands.md').exists())
+        for filename in (
+            'LICENSE', 'NOTICE.md', 'CHANGELOG.md', 'CONTRIBUTING.md',
+            'SECURITY.md', 'CODE_OF_CONDUCT.md', 'SUPPORT.md',
+        ):
+            self.assertEqual((unpack / 'tools' / filename).read_text(), (PROJECT / filename).read_text())
         self.assertIn('python3 ../../tools/personal-agent --workspace .. bootstrap', entry.read_text())
         boot = subprocess.run([sys.executable, '../../tools/personal-agent', '--workspace', '..', 'bootstrap'], cwd=entry.parent, stdin=subprocess.DEVNULL, text=True, capture_output=True)
         self.assertEqual(boot.returncode, 0, boot.stderr)
         self.assertEqual(json.loads(boot.stdout)['status'], 'resumed')
         self.assertEqual(load(unpack / 'workspace/config.json')['id'], self.ws.config['id'])
+        returned = subprocess.run(
+            [sys.executable, str(unpack / 'tools/personal-agent'), '--workspace', str(unpack / 'workspace'), 'export', '--return'],
+            text=True, capture_output=True,
+        )
+        self.assertEqual(returned.returncode, 0, returned.stderr)
+        with zipfile.ZipFile(json.loads(returned.stdout)['bundle']) as archive:
+            self.assertEqual(archive.read('tools/LICENSE').decode(), (PROJECT / 'LICENSE').read_text())
+            self.assertEqual(archive.read('tools/NOTICE.md').decode(), (PROJECT / 'NOTICE.md').read_text())
 
     def test_bootstrap_starts_without_terminal_input_or_enabling_sources(self):
         root = self.root / 'first-start'
@@ -356,16 +461,78 @@ class HarnessTests(unittest.TestCase):
         reading = first['sources'][0]['reading']
         self.assertEqual(reading['start'], {'message': 0, 'offset': 0})
         self.assertEqual(reading['next_read'], {'message': 0, 'offset': 12})
+        first['response_example']['reviews'][0].update(topics=['学习'], wiki_pages=['wiki/关于用户/当前认识.md'])
         self.ws.record(first['response_example'])
         second = load(job(self.ws, 'chatgpt', max_chars=12)['job'])
         self.assertEqual(second['sources'][0]['reading']['start'], {'message': 0, 'offset': 12})
+        second['response_example']['reviews'][0].update(topics=['时间安排'], wiki_pages=['wiki/想法与选择/目标与选择.md'])
         self.ws.record(second['response_example'])
         third = load(job(self.ws, 'chatgpt', max_chars=12)['job'])
         self.assertEqual(third['sources'][0]['reading']['start'], {'message': 0, 'offset': 24})
+        review = third['sources'][0]['previous_review']
+        self.assertEqual(review['topics'], ['学习', '时间安排'])
+        self.assertEqual(len(review['wiki_pages']), 2)
+        topics = (self.ws.context / 'sources/topics.md').read_text()
+        self.assertIn('## 学习', topics)
+        self.assertIn('## 时间安排', topics)
         write(p, [conversation('更新' * 20, revision=3)])
         Collector(self.ws).collect('chatgpt')
         changed = load(job(self.ws, 'chatgpt', max_chars=12)['job'])
         self.assertEqual(changed['sources'][0]['reading']['start'], {'message': 0, 'offset': 0})
+        changed['response_example']['reviews'][0]['topics'] = ['新目标']
+        self.ws.record(changed['response_example'])
+        self.assertNotIn('## 学习', (self.ws.context / 'sources/topics.md').read_text())
+
+    def test_wechat_long_messages_resume_with_sender_and_source(self):
+        p = self.root / 'wechat.json'
+        bodies = ['本人长消息' * 20 + '末尾确认', '朋友的补充']
+        messages = [row(1, bodies[0]), row(2, bodies[1])]
+        bodies[0] = '[引用朋友：本周安排] ' + bodies[0]
+        messages[0]['display_text_rendered'] = bodies[0]
+        messages[1].update(sender_is_self=False, sender_display_name='朋友')
+        write(p, snapshot(messages))
+        self.enable('wechat', p)
+        Collector(self.ws).collect('wechat')
+        pieces = {}
+        while True:
+            task = load(job(self.ws, 'wechat', max_chars=17)['job'])
+            reading = task['sources'][0]['reading']
+            self.assertIsInstance(reading['more'], bool)
+            chunk = load(reading['path'])
+            self.assertLessEqual(sum(len(m['text']) for m in chunk['messages']), 17)
+            if not pieces:
+                self.assertTrue(reading['more'])
+                self.assertNotIn('末尾确认', json.dumps(chunk, ensure_ascii=False))
+            for message in chunk['messages']:
+                pieces.setdefault(message['reading_pointer'], []).append(message['text'])
+                self.assertIn('sender_is_self', message)
+                self.assertIn('create_time', message)
+            self.ws.record(task['response_example'])
+            if not reading['more']:
+                break
+        self.assertEqual([''.join(parts) for parts in pieces.values()], bodies)
+        self.assertTrue(all('#/rows/' in pointer for pointer in pieces))
+
+    def test_long_text_import_is_read_in_resumable_chunks(self):
+        p = self.root / 'diary.md'
+        p.write_text('日记全文' * 30)
+        self.enable('manual', p)
+        Collector(self.ws).collect('manual')
+        key = next(r['key'] for r in self.records('manual') if r['id'] != 'profile')
+        chunks = []
+        while True:
+            task = load(job(self.ws, 'manual', max_chars=29)['job'])
+            source = next(r for r in task['sources'] if r['key'] == key)
+            reading = source['reading']
+            self.assertIsInstance(reading['more'], bool)
+            chunk = load(reading['path'])
+            self.assertLessEqual(len(chunk['text']), 29)
+            chunks.append(chunk['text'])
+            self.ws.record(task['response_example'])
+            if not reading['more']:
+                break
+        expected = (self.ws.context / self.ws.catalog()['records'][key]['document']).read_text()
+        self.assertEqual(''.join(chunks), expected)
 
     def test_maintenance_merges_received_cloud_changes_and_publishes_after_reading(self):
         from personal_agent.maintenance import finish, maintain

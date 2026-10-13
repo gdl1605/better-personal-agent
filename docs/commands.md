@@ -45,14 +45,16 @@ python3 personal-agent -w ~/PersonalContext onboard record '/实际交互记录.
 python3 personal-agent -w ~/PersonalContext setup
 python3 personal-agent -w ~/PersonalContext init --name '用户称呼' --timezone Asia/Shanghai --goal '当前目标'
 python3 personal-agent -w ~/PersonalContext sources
-python3 personal-agent -w ~/PersonalContext sources chatgpt --enable --path '/导出.zip' --share wiki
+python3 personal-agent -w ~/PersonalContext sources chatgpt --enable --mode export --path '/导出.zip' --share wiki
 python3 personal-agent -w ~/PersonalContext sources chatgpt --enable --mode app
 python3 personal-agent -w ~/PersonalContext sources chatgpt --discover
 python3 personal-agent -w ~/PersonalContext sources chatgpt --include '实际会话ID' --from 2026-10-01
 python3 personal-agent -w ~/PersonalContext sources wechat --enable --mode import --path '/微信快照目录' --share sources
 python3 personal-agent -w ~/PersonalContext sources wechat --discover
 python3 personal-agent -w ~/PersonalContext sources wechat --exclude '实际群聊ID'
+python3 personal-agent -w ~/PersonalContext sources wechat --enable --mode cli --cli '/实际路径/wechat-use' --include '本人选定的会话ID'
 python3 personal-agent -w ~/PersonalContext sources codex --enable --mode local
+python3 personal-agent -w ~/PersonalContext sources payments --enable --mode files --path '/已解压的微信账单.xlsx'
 ```
 
 `--processing digest/archive` 决定是否交给处理 Agent 自动形成理解；`--share none/wiki/sources` 决定日常 dot 发布入口及云端包包含哪些内容。允许语义处理意味着该处理 Agent 可以读取选定材料。姓名、目标和其他初始化信息属于本人填写的来源。
@@ -60,6 +62,8 @@ python3 personal-agent -w ~/PersonalContext sources codex --enable --mode local
 关闭采集用 `--disable`；已有原件和认识继续保留。停止自动消化用 `--processing archive`。改变发布范围用 `--share`，已有发布入口自动刷新。清空路径、日期和会话选择分别用 `--clear-paths`、`--clear-dates`、`--clear-includes`、`--clear-excludes`。收窄范围时撤回旧阅读材料及相关认识，并按新范围接入；扩大范围保留已有认识。
 
 会话发现返回标题和 ID，dot 可以让用户按标题选择，再保存真实 ID。健康等普通文件按路径选择；日期筛选要求其逐条记录有可识别日期字段。
+
+导出、登录、迁移和具体格式的引导由[各来源操作说明](onboarding.md#各来源的操作说明)维护。已有工作区追加资料直接修改对应来源并 collect，不重置首次引导。
 
 ## 接入与消化
 
@@ -96,7 +100,11 @@ Agent 实际读取 instructions、列出的来源及相关 Wiki，再写以下 J
 
 revision 和 source_permissions 原样使用本轮任务的值，不取提交时的新版本；上例的 0 只是初始版本。用户改变使用范围后旧回执不恢复已撤回认识，重新取得任务并实际阅读。部分读完用 `partial` 并给 `next_read`。完整文字副本改变也会更新版本，即使回复摘录未变化。Wiki 更新可给 `base_content`；两端同时修改时保留另一份内容供合并。
 
-长聊天的 job 在每份来源下返回 `reading.path`：来自完整文字副本的本轮分段，附原消息位置与文字范围。默认每份 24,000 字符，可用 `digest --max-chars` 调整；这是分配工作的大小，不是完成条件。实际读完这一段且 `reading.more=true` 时，用 `partial` 和 `next_read: {"message": 消息序号, "offset": 文字偏移}` 提交，再执行 digest 从该位置继续。相同版本保留位置，来源更新后重新检查变化。每段比较已有认识、更新实际有变化的 Wiki，不把机械摘要当作个人理解。
+每份来源的 job 都返回 `reading.path`，默认正文分段大小为 24,000 字符，可用 `digest --max-chars` 调整；这是分配工作的大小，不是完成条件。Codex、ChatGPT 和微信快照按消息分段，附发言者、原消息位置和文字范围；其 `next_read` 为 `{"message": 消息序号, "offset": 文字偏移}`。Markdown、TXT、普通 JSON／CSV 和账单按生成的来源全文分段，`next_read` 为 `{"offset": 文字偏移}`。读取返回文件中的 `messages` 或 `text`，不要自行猜测是哪一种游标。
+
+实际读完本段且 `reading.more=true` 时，用 `partial` 并原样提交本段的 `next_read`，再执行 digest 续读；最后一段实际处理完再记录 `done`。同一版本续读时累计已记录的主题和理解页，避免后读片段覆盖前面主题；来源更新后重新检查变化并记录新版本的分类。每段比较已有认识、更新真正有变化的 Wiki，不把机械摘要当作个人理解。
+
+`wiki_updates.content` 是更新后的整页。Agent 先读原页，保留仍成立的内容，再修改对应事实；`source_keys` 要覆盖整页实际采用的来源，包括保留内容的旧依据。根 README 与 Wiki 导航可以增量维护，工具刷新只更新来源索引、主题索引和阅读状态，不用空白模板覆盖已编辑的根导航。
 
 ### 自动获取 ChatGPT 会话
 

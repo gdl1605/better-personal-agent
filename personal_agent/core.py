@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime
 import json
+from os.path import relpath
 from pathlib import Path
 import re
 import shutil
@@ -184,10 +185,13 @@ class Workspace:
                 lines += [f"  - [理解页](<../{page}>)" for page in review.get("wiki_pages", [])]
             lines.append("")
         write(self.context / "sources/topics.md", "\n".join(lines) + "\n")
-        root_map = (PROJECT / "templates/context/README.md").read_text()
+        root_path = self.context / "README.md"
+        root_map = (root_path if root_path.exists() else PROJECT / "templates/context/README.md").read_text()
         root_map = root_map.replace("这是一份空白起始模板。称呼、经历、目标与生活信息由本人表达或实际材料填写；健康和消费页面按用户选择逐渐扩展。", "个人信息随本人表达和实际材料增量维护。")
-        root_map += "\n[来源入口](sources/README.md) · [主题索引](sources/topics.md) · [阅读进度](state/digest-status.md)\n"
-        write(self.context / "README.md", root_map)
+        navigation = "[来源入口](sources/README.md) · [主题索引](sources/topics.md) · [阅读进度](state/digest-status.md)"
+        if navigation not in root_map:
+            root_map = root_map.rstrip() + "\n\n" + navigation + "\n"
+        write(root_path, root_map)
         return queue
 
     def apply_wiki(self, updates):
@@ -247,6 +251,11 @@ class Workspace:
         wiki = self.apply_wiki(updates)
         state = load(self.context / "state/digest.json", {"records": {}})
         for review in reviews:
+            previous = state["records"].get(review["key"], {})
+            if previous.get("status") == "partial" and previous.get("revision") == review["revision"]:
+                review = dict(review)
+                for field in ("topics", "wiki_pages"):
+                    review[field] = list(dict.fromkeys([*previous.get(field, []), *review.get(field, [])]))
             state["records"][review["key"]] = {**review, "reviewed_at": self.now()}
         write(self.context / "state/digest.json", state)
         result = {"wiki": wiki, "skipped": skipped, **self.refresh()}
@@ -258,7 +267,8 @@ class Workspace:
         item = self.put("manual", ident, f"本人确认：{section}", f"# 本人确认\n\n日期：{self.now()}\n\n{text}\n", self.now(), "本人当前表达")
         path = within(self.context, page, "wiki")
         content = path.read_text() if path.exists() else f"# {path.stem}\n"
-        block = f"## {section}\n\n{text}\n\n表达日期：{self.now()}。[本人原文](../../{item['document']})\n"
+        source_link = Path(relpath(self.context / item['document'], path.parent)).as_posix()
+        block = f"## {section}\n\n{text}\n\n表达日期：{self.now()}。[本人原文](<{source_link}>)\n"
         expression = re.compile(r"(?ms)^## " + re.escape(section) + r"\s*\n.*?(?=^## |\Z)")
         content = expression.sub(lambda _: block + "\n", content) if expression.search(content) else content.rstrip() + "\n\n" + block
         registry = load(self.root / "state/wiki-provenance.json", {"pages": {}})

@@ -40,7 +40,7 @@ def job(ws, source=None, limit=None, max_chars=24000):
         "每段提取本人事实、目标、约束、决定、协作偏好和重要变化，与现有认识比较并更新对应主落点；不要只做逐段摘要。",
         "读完本段仍有 more 时提交 partial 和该段的 next_read，再运行 digest 继续，直到本轮可处理工作完成；未读历史留给下一次运行。只有实际读完当前可用版本才用 done。",
         "App 只取到部分历史或消息被工具截断时，这份来源的阅读不等于完整会话已取得；继续 chatgpt 返回的获取请求。来源更新后旧位置只作线索，重新检查改动及上下文。",
-        "wiki_updates 采用 {path, content, source_keys}，source_keys 列出实际采用的来源。并发写入时可附读到的 base_content，以保留双方修改。",
+        "wiki_updates 采用 {path, content, source_keys}。先读原页再提交更新后的整页，保留仍成立的内容；source_keys 覆盖整页依据，包括保留内容的旧来源。并发写入时可附读到的 base_content，以保留双方修改。",
         "回执保留本任务的 source_permissions；用户改变资料使用范围后重新生成任务，不从旧任务或旧包恢复撤回内容。",
         "如有范围变更后的待重建页面，只依据当前允许的来源重新整理；不要读取已撤回的旧页面、旧回执或本地原件。",
         *[f"待重建 {page}；可用来源：{', '.join(k for k in info['source_keys'] if k in catalog) or '没有剩余来源，保留空白或等待本人新表达'}。" for page, info in repairs.items()],

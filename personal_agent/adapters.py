@@ -14,7 +14,7 @@ import uuid
 from zoneinfo import ZoneInfo
 
 from . import parsers
-from .core import LABELS, PROVIDERS, safe_id, write
+from .core import LABELS, PROVIDERS, load, safe_id, within, write
 from .credentials import Redactor
 
 
@@ -67,6 +67,11 @@ def files(paths, extensions):
     return sorted(result, key=lambda p: (p.stat().st_mtime_ns, str(p)))
 
 
+def local_codex_paths():
+    # A new Codex installation may have no archived_sessions directory yet.
+    return [str(path) for path in (Path.home() / '.codex/sessions', Path.home() / '.codex/archived_sessions') if path.exists()]
+
+
 class Collector:
     def __init__(self, workspace):
         self.ws = workspace
@@ -108,6 +113,8 @@ class Collector:
         lines = [f"# {title}", "", "> 选定范围的来源视图；本人、助手、引用与其他分支分别判断。", "", f"[所选范围的完整文字](<originals/{safe_id(ident)}.json>)", ""]
         for index, message in enumerate(messages):
             pointer = message.get("pointer") or (f"原节点 {message['node_id']}" if "node_id" in message else f"原 JSONL 行 {message.get('line', '')}")
+            if message.get('_origin_record'):
+                pointer = f"{message['_origin_record']}，成员 {message.get('_origin_member') or ''}，会话 {message.get('_origin_conversation_index', '')}，{message['_origin_pointer']}"
             anchor = safe_id(message.get("node_id") or f"line-{message.get('line', index)}")
             lines += [f'<a id="{anchor}"></a>', f"## {message.get('time') or '时间未返回'} · {message['role']} · {message.get('branch', '')}", "", f"出处：{pointer}；阅读副本 `/messages/{index}`。", "", parsers.message_view(message), ""]
             if message.get("truncated"):
@@ -140,11 +147,41 @@ class Collector:
                     record = {"id": str(ident), "title": conversation.get("title") or str(ident), "revision": conversation.get("update_time") or conversation.get("create_time") or 0}
                     messages = parsers.parse_chatgpt(conversation)
                 old = self.ws.catalog()["records"].get(f"chatgpt:{record['id']}", {})
-                if old.get("source_revision", 0) > record["revision"]:
+                source_kind = 'app_snapshot' if app else 'account_export'
+                mixed = old.get('source_kind') in ('account_export', 'app_snapshot', 'mixed') and old['source_kind'] != source_kind
+                if old.get("source_revision", 0) > record["revision"] and not mixed:
                     continue
                 messages = [m for m in messages if selected(record["id"], m["time"], options.get("scope", {}), self.tz)]
+                origin = self.archive("chatgpt", path)
+                if mixed:
+                    previous = []
+                    for relative in old.get('readable_originals', []):
+                        saved = load(within(self.ws.context, relative, 'sources'))
+                        if isinstance(saved, dict) and saved.get('kind') == 'selected_reading_copy':
+                            previous.extend(saved['messages'])
+                    # Tool pages and account exports have different coverage.
+                    # Keep messages absent from the other input; a newer input
+                    # owns an explicitly returned message with the same ID.
+                    for values, location, saved_member, saved_index in (
+                        (previous, old['origin'], old.get('member'), old.get('conversation_index')),
+                        (messages, origin, member, index),
+                    ):
+                        for message in values:
+                            message.setdefault('_origin_record', location)
+                            message.setdefault('_origin_member', saved_member)
+                            message.setdefault('_origin_conversation_index', saved_index)
+                            message.setdefault('_origin_pointer', message.get('pointer') or '/mapping/' + str(message['node_id']).replace('~', '~0').replace('/', '~1') + '/message')
+                    ordered = (previous, messages) if record['revision'] >= old.get('source_revision', 0) else (messages, previous)
+                    merged = {}
+                    for values in ordered:
+                        for message in values:
+                            key = (message['role'], message.get('message_id') or message.get('node_id') or (message['_origin_record'], message['_origin_pointer']))
+                            merged[key] = message
+                    messages = sorted(merged.values(), key=lambda m: m.get('time', ''))
+                    source_kind = 'mixed'
+                    record['revision'] = max(record['revision'], old.get('source_revision', 0))
                 messages = self.clean("chatgpt", messages)
-                self.dialogue("chatgpt", record["id"], record["title"], messages, self.archive("chatgpt", path), {"source_revision": record["revision"], "source_kind": "app_snapshot" if app else "account_export", "member": member, "conversation_index": index, **({"more_history_available": record['more_history_available'], "truncated_messages": record['truncated_messages']} if app else {})})
+                self.dialogue("chatgpt", record["id"], record["title"], messages, origin, {"source_revision": record["revision"], "source_kind": source_kind, "member": member, "conversation_index": index, **({"more_history_available": record['more_history_available'], "truncated_messages": record['truncated_messages']} if app else {})})
 
     def database(self):
         db = sqlite3.connect(self.ws.root / "state/wechat.sqlite3")
@@ -223,6 +260,13 @@ class Collector:
                 args += ["--since", str(cursors[chat])]
             elif options.get("scope", {}).get("from"):
                 args += ["--since", str(int(date(options["scope"]["from"], self.tz).timestamp()))]
+            until = options.get('scope', {}).get('until')
+            if until:
+                end = date(until, self.tz)
+                # Harness date ranges include the selected day; the CLI's
+                # --until is exclusive and its history timestamps are seconds.
+                boundary = int((end + timedelta(days=1)).timestamp()) if len(until) == 10 else int(end.timestamp()) + 1
+                args += ['--until', str(boundary)]
             result = parsers.query_all(cli, args)
             if result["rows"]:
                 path = self.ws.root / "inbox/wechat" / f"{safe_id(account)}-{safe_id(chat)}.json"
@@ -358,7 +402,7 @@ class Collector:
             return {"items": [{"id": r["username"], "title": self.clean("wechat", r.get("display_name") or r.get("nickname") or r["username"])} for r in rows if r["username"] not in ("brandservicesessionholder", "brandsessionholder")]}
         paths = options.get("paths") or [str(self.ws.root / "inbox" / provider)]
         if provider == "codex" and options.get("mode") == "local" and not options.get("paths"):
-            paths = [str(Path.home() / ".codex/sessions"), str(Path.home() / ".codex/archived_sessions")]
+            paths = local_codex_paths()
         extensions = {"codex": {".jsonl"}, "chatgpt": {".json", ".zip"}, "wechat": {".json", ".md", ".txt"}}.get(provider, {".json", ".md", ".txt", ".csv", ".xlsx", ".zip"})
         result = {}
         for path in files(paths, extensions):
@@ -408,7 +452,7 @@ class Collector:
                 choices = list(dict.fromkeys([*choices, str(self.ws.root / 'inbox/chatgpt/app')]))
             extensions = {"codex": {".jsonl"}, "chatgpt": {".json", ".zip"}, "wechat": {".json", ".md", ".txt"}, "payments": {".csv", ".zip", ".xlsx"}}.get(provider, {".md", ".txt", ".json", ".csv"})
             if provider == "codex" and options.get("mode") == "local" and not options.get("paths"):
-                choices = [str(Path.home() / ".codex/sessions"), str(Path.home() / ".codex/archived_sessions")]
+                choices = local_codex_paths()
             try:
                 if provider == "wechat" and options.get("mode") == "cli":
                     result.update(self.live_wechat(options))
