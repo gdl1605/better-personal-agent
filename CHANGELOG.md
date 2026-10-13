@@ -4,7 +4,7 @@
 
 ## [Unreleased]
 
-后续改动将在此记录。
+- GitHub 仓库更名为 `your-life-as-context`，同步 README 标题、源码获取与开源协作链接。
 
 ## [0.1.0] - 2026-10-13
 
@@ -34,7 +34,7 @@
 - 将日常同步续读与独立理解校准交给实际平台调度，并保存真实任务引用。
 - 修正 ChatGPT 新消息与历史分页的续接，以及云端修改返回本地的增量合并。
 
-实现历史：[初始实现 de28272](https://github.com/gdl1605/personal-agent/commit/de28272)、[引导与维护完善 19da9be](https://github.com/gdl1605/personal-agent/commit/19da9be)、[分页与合并修正 687d252](https://github.com/gdl1605/personal-agent/commit/687d252)。运行边界与后续方向见[当前实现与后续建设](docs/roadmap.md)。
+实现历史：[初始实现 de28272](https://github.com/gdl1605/your-life-as-context/commit/de28272)、[引导与维护完善 19da9be](https://github.com/gdl1605/your-life-as-context/commit/19da9be)、[分页与合并修正 687d252](https://github.com/gdl1605/your-life-as-context/commit/687d252)。运行边界与后续方向见[当前实现与后续建设](docs/roadmap.md)。
 
-[Unreleased]: https://github.com/gdl1605/personal-agent/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/gdl1605/personal-agent/releases/tag/v0.1.0
+[Unreleased]: https://github.com/gdl1605/your-life-as-context/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/gdl1605/your-life-as-context/releases/tag/v0.1.0

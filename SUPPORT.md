@@ -10,7 +10,7 @@
 
 ## 普通问题
 
-使用疑问、Bug 和功能建议请提交到 [GitHub Issues](https://github.com/gdl1605/personal-agent/issues)。维护者为 [gdl1605](https://github.com/gdl1605)。
+使用疑问、Bug 和功能建议请提交到 [GitHub Issues](https://github.com/gdl1605/your-life-as-context/issues)。维护者为 [gdl1605](https://github.com/gdl1605)。
 
 报告 Bug 时，请说明版本或提交、操作系统与 Python 版本、执行步骤、期望行为和实际结果。需要样本时，用虚构内容保留与问题有关的字段结构；无需提供真实个人资料。
 

@@ -1,4 +1,4 @@
-# Personal Agent Harness
+# your-life-as-context
 
 **让你拥有一个懂你方方面面、24 小时在线的专属 AI 专家。**
 
@@ -33,8 +33,8 @@
 先获取源码：
 
 ```bash
-git clone https://github.com/gdl1605/personal-agent.git
-cd personal-agent
+git clone https://github.com/gdl1605/your-life-as-context.git
+cd your-life-as-context
 ```
 
 本地开发与 CI 使用 Python 3.12，运行代码只依赖标准库。dot、文件交付和自动调度使用当前环境提供的实际能力；具体边界见[当前实现](docs/roadmap.md)。
@@ -141,10 +141,10 @@ Agent 负责实际阅读、判断信息的含义、形成理解和回答问题�
 
 欢迎改进来源适配、上下文维护、使用引导和文档。开发环境、相关测试与 PR 提交方式见[贡献指南](CONTRIBUTING.md)，版本变化见[更新记录](CHANGELOG.md)，后续方向见[当前实现与后续建设](docs/roadmap.md)。
 
-普通问题和建议可提交到 [GitHub Issues](https://github.com/gdl1605/personal-agent/issues)，使用入口见[支持说明](SUPPORT.md)。安全漏洞、资料或凭据泄露请按[安全报告说明](SECURITY.md)私下联系维护者；社区协作遵循[行为准则](CODE_OF_CONDUCT.md)。
+普通问题和建议可提交到 [GitHub Issues](https://github.com/gdl1605/your-life-as-context/issues)，使用入口见[支持说明](SUPPORT.md)。安全漏洞、资料或凭据泄露请按[安全报告说明](SECURITY.md)私下联系维护者；社区协作遵循[行为准则](CODE_OF_CONDUCT.md)。
 
 MIT 许可覆盖项目代码、通用文档、提示词、模板和虚构示例。你导入的个人资料与据此形成的 Wiki 不会因使用本项目而成为开源内容；导出的个人上下文包应按你的提供范围使用。详细边界见 [NOTICE](NOTICE.md)。
 
 ---
 
-当前版本：[v0.1.0](https://github.com/gdl1605/personal-agent/releases/tag/v0.1.0)。[使用引导](BOOTSTRAP.md) · [资料导入](docs/onboarding.md#各来源的操作说明) · [资料与隐私](docs/privacy-and-sync.md) · [项目文档](docs/architecture.md) · [MIT License](LICENSE)
+当前版本：[v0.1.0](https://github.com/gdl1605/your-life-as-context/releases/tag/v0.1.0)。[使用引导](BOOTSTRAP.md) · [资料导入](docs/onboarding.md#各来源的操作说明) · [资料与隐私](docs/privacy-and-sync.md) · [项目文档](docs/architecture.md) · [MIT License](LICENSE)
