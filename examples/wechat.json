@@ -1,0 +1,29 @@
+{
+  "provider": "wechat-use.history",
+  "account": "demo-owner",
+  "chat_id": "demo-friend",
+  "result": {
+    "rows": [
+      {
+        "server_id": 1,
+        "local_id": 1,
+        "create_time": 1791770400,
+        "sender_is_self": true,
+        "chat_display_name": "示例朋友",
+        "display_text": "这周工作日晚间需要加班，不安排额外学习任务。",
+        "message_content": "这周工作日晚间需要加班，不安排额外学习任务。",
+        "aeskey": "0123456789abcdef0123456789abcdef"
+      },
+      {
+        "server_id": 2,
+        "local_id": 1,
+        "create_time": 1791770401,
+        "sender_is_self": false,
+        "sender_display_name": "示例朋友",
+        "chat_display_name": "示例朋友",
+        "display_text": "我觉得你应该优先推进个人项目。",
+        "message_content": "我觉得你应该优先推进个人项目。"
+      }
+    ]
+  }
+}

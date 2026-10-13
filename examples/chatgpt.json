@@ -1,0 +1,36 @@
+{
+  "id": "demo-study",
+  "title": "示例学习目标",
+  "update_time": 1791770400,
+  "current_node": "user-goal",
+  "mapping": {
+    "user-goal": {
+      "parent": null,
+      "message": {
+        "author": {
+          "role": "user"
+        },
+        "content": {
+          "parts": [
+            "未来两周我先完成课程作业，个人项目暂停。"
+          ]
+        },
+        "create_time": 1791770400
+      }
+    },
+    "alternative": {
+      "parent": null,
+      "message": {
+        "author": {
+          "role": "assistant"
+        },
+        "content": {
+          "parts": [
+            "建议继续加速个人项目。"
+          ]
+        },
+        "create_time": 1791770401
+      }
+    }
+  }
+}

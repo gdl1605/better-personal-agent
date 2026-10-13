@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "owner": {
+    "display_name": "用户",
+    "timezone": "Asia/Shanghai"
+  },
+  "workspace": "~/PersonalContext",
+  "sources": {
+    "manual": {
+      "enabled": true,
+      "paths": [],
+      "processing": "digest",
+      "dot_share": "wiki"
+    },
+    "codex": {
+      "enabled": false,
+      "paths": [],
+      "scope": {
+        "main_conversations_only": true,
+        "from": null,
+        "until": null,
+        "include_ids": [],
+        "exclude_ids": []
+      },
+      "processing": "digest",
+      "dot_share": "wiki"
+    },
+    "chatgpt": {
+      "enabled": false,
+      "mode": "export",
+      "paths": [],
+      "scope": {
+        "from": null,
+        "until": null,
+        "include_ids": [],
+        "exclude_ids": []
+      },
+      "processing": "digest",
+      "dot_share": "wiki"
+    },
+    "wechat": {
+      "enabled": false,
+      "mode": "import",
+      "paths": [],
+      "scope": {
+        "from": null,
+        "until": null,
+        "include_ids": [],
+        "exclude_ids": []
+      },
+      "processing": "digest",
+      "dot_share": "wiki"
+    },
+    "health": {
+      "enabled": false,
+      "mode": "manual",
+      "paths": [],
+      "processing": "digest",
+      "dot_share": "wiki"
+    },
+    "payments": {
+      "enabled": false,
+      "mode": "files",
+      "paths": [],
+      "gmail_enabled": false,
+      "processing": "digest",
+      "dot_share": "wiki"
+    }
+  },
+  "privacy": {
+    "redact_credentials": true,
+    "credential_scan_sources": [
+      "wechat"
+    ]
+  },
+  "runtime": {
+    "primary": "dot",
+    "delivery": "connected_computer",
+    "agent_command": [],
+    "uploader_command": []
+  },
+  "maintenance": {
+    "enabled": false,
+    "frequency": null,
+    "notify_on": [
+      "understanding_changed",
+      "action_needed",
+      "failure"
+    ]
+  }
+}
