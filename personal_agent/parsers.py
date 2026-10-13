@@ -176,7 +176,7 @@ def parse_chatgpt_app(snapshot: dict) -> tuple[dict, list[dict]]:
     if not pages or pages[0].get("thread", {}).get("kind") != "chatgpt":
         raise ValueError("App 快照需要包含 ChatGPT read_thread 的 pages 原始返回")
     thread = pages[0]["thread"]
-    messages, seen = [], set()
+    messages, seen = [], {}
     for page_number in reversed(range(len(pages))):
         page = pages[page_number]
         turns = page.get("turns", [])
@@ -191,22 +191,25 @@ def parse_chatgpt_app(snapshot: dict) -> tuple[dict, list[dict]]:
                     continue
                 pointer = f"/pages/{page_number}/turns/{turn_number}/items/{item_number}"
                 ident = str(item.get("id") or pointer)
-                if ident in seen:
-                    continue
-                seen.add(ident)
                 body, media = text_parts(item.get("content", [])) if role == "user" else (item.get("text") or "", [])
                 if not body and not media:
                     continue
-                messages.append({"role": role, "text": body, "media": media, "node_id": ident,
+                message = {"role": role, "text": body, "media": media, "node_id": ident,
                                  "message_id": ident, "parent": None, "pointer": pointer,
                                  "time": timestamp(turn.get("startedAt")), "branch": "App 返回的对话",
-                                 "truncated": bool(item.get("truncated") or item.get("textTruncated"))})
+                                 "truncated": bool(item.get("truncated") or item.get("textTruncated"))}
+                if ident in seen:
+                    messages[seen[ident]] = message
+                else:
+                    seen[ident] = len(messages)
+                    messages.append(message)
+    messages.sort(key=lambda m: m['time'])
     revision = thread.get("updatedAt") or thread.get("createdAt") or 0
     record = {"id": str(thread["id"]), "title": str(thread.get("title") or thread["id"]),
               "source_kind": "app_snapshot", "pointer": "/pages", "member": None,
               "created": timestamp(thread.get("createdAt")), "last": timestamp(revision),
               "revision": revision, "captured_at": snapshot.get("captured_at"),
-              "more_history_available": pages[-1].get("page", {}).get("hasMore"),
+              "more_history_available": not snapshot['history_complete'] if 'history_complete' in snapshot else pages[-1].get("page", {}).get("hasMore"),
               "truncated_messages": sum(m["truncated"] for m in messages)}
     return record, messages
 

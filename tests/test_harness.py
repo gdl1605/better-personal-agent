@@ -15,8 +15,10 @@ from xml.sax.saxutils import escape
 from personal_agent.adapters import Collector
 from personal_agent.cli import main
 from personal_agent.core import PROJECT, Workspace, load, write
-from personal_agent.delivery import export_bundle, publish_dot_view, sync_incoming
+from personal_agent.delivery import delivery_receipt, export_bundle, publish_dot_view, sync_incoming
 from personal_agent.runtime import execute_agent, job
+from personal_agent.onboarding import onboard
+from personal_agent.privacy import permissions, record_withdrawal, withdraw
 
 
 def snapshot(rows, chat="friend", account="owner"):
@@ -134,11 +136,16 @@ class HarnessTests(unittest.TestCase):
 
     def test_feedback_updates_same_section_instead_of_accumulating_old_claim(self):
         self.ws.feedback("每周可投入十小时", section="当前可用时间")
+        view = publish_dot_view(self.ws)
         self.ws.feedback("每周可投入五小时", section="当前可用时间")
         body = (self.ws.context / "wiki/关于用户/当前认识.md").read_text()
         self.assertIn("每周可投入五小时", body)
         self.assertNotIn("每周可投入十小时", body)
         self.assertEqual(body.count("## 当前可用时间"), 1)
+        self.assertEqual((view / "wiki/关于用户/当前认识.md").read_text(), body)
+        with redirect_stdout(io.StringIO()):
+            main(['-w', str(self.ws.root), 'maintain'])
+        self.assertEqual((view / "wiki/关于用户/当前认识.md").read_text(), body)
 
     def test_export_omits_raw_and_unshared_source_derived_wiki(self):
         p = self.root / "health.txt"
@@ -166,6 +173,64 @@ class HarnessTests(unittest.TestCase):
         process = subprocess.run([sys.executable, str(unpack / "tools/personal-agent"), "--workspace", str(unpack / "workspace"), "status", "--json"], text=True, capture_output=True)
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertEqual(json.loads(process.stdout)["sources"]["wechat"]["records"], 1)
+        entry = unpack / 'workspace/agent-context/BOOTSTRAP.md'
+        self.assertTrue((unpack / 'tools/BOOTSTRAP.md').exists())
+        self.assertTrue((unpack / 'tools/docs/commands.md').exists())
+        self.assertIn('python3 ../../tools/personal-agent --workspace .. bootstrap', entry.read_text())
+        boot = subprocess.run([sys.executable, '../../tools/personal-agent', '--workspace', '..', 'bootstrap'], cwd=entry.parent, stdin=subprocess.DEVNULL, text=True, capture_output=True)
+        self.assertEqual(boot.returncode, 0, boot.stderr)
+        self.assertEqual(json.loads(boot.stdout)['status'], 'resumed')
+        self.assertEqual(load(unpack / 'workspace/config.json')['id'], self.ws.config['id'])
+
+    def test_bootstrap_starts_without_terminal_input_or_enabling_sources(self):
+        root = self.root / 'first-start'
+        output = io.StringIO()
+        with patch('personal_agent.bootstrap.PROJECT', self.root / 'project'), patch('builtins.input', side_effect=AssertionError('Bootstrap must not read terminal input')), redirect_stdout(output):
+            self.assertEqual(main(['--workspace', str(root), 'bootstrap', '--goal', '先整理自己的目标']), 0)
+        result = json.loads(output.getvalue())
+        self.assertEqual(result['status'], 'created')
+        self.assertEqual(result['enabled_sources'], ['manual'])
+        self.assertTrue(Path(result['instructions']).exists())
+        self.assertTrue(Path(result['entry']).exists())
+        self.assertEqual(load(result['binding'])['workspace'], str(root.resolve()))
+        self.assertEqual(Workspace(root).config['goals'], ['先整理自己的目标'])
+        self.assertEqual(result['digestion']['reviewed_current'], 0)
+        self.assertEqual(set(result['automation']['tasks']), {'maintenance', 'calibration'})
+        self.assertTrue(all(t['status'] == 'awaiting_platform_schedule' for t in result['automation']['tasks'].values()))
+        self.assertTrue(Workspace(root).config['maintenance']['enabled'])
+
+    def test_bootstrap_remembers_choice_to_start_with_self_description_only(self):
+        root = self.root / 'self-only'
+        with patch('personal_agent.bootstrap.PROJECT', self.root / 'project'):
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(main(['--workspace', str(root), 'bootstrap', '--sources-decided']), 0)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(main(['bootstrap']), 0)
+        result = json.loads(output.getvalue())
+        self.assertIsNone(result['next_question'])
+        self.assertEqual(result['enabled_sources'], ['manual'])
+
+    def test_bootstrap_resumes_project_binding_and_preserves_choices_and_wiki(self):
+        self.enable('wechat', self.root / 'chosen-chat.json', dot_share='none', scope={'include_ids': ['chosen-friend']})
+        self.ws.feedback('保留已经确认的个人背景', section='本人确认')
+        page = self.ws.context / 'wiki/关于用户/当前认识.md'
+        content = page.read_text()
+        config = self.ws.config
+        with patch('personal_agent.bootstrap.PROJECT', self.root / 'project'):
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(main(['--workspace', str(self.ws.root), 'bootstrap']), 0)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(main(['bootstrap']), 0)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result['workspace'], str(self.ws.root))
+            self.assertEqual(result['status'], 'resumed')
+            self.assertIsNone(result['next_question'])
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(main(['status']), 0)
+        self.assertEqual(self.ws.config, config)
+        self.assertEqual(page.read_text(), content)
 
     def cloud(self):
         bundle = export_bundle(self.ws)
@@ -175,12 +240,14 @@ class HarnessTests(unittest.TestCase):
         return Workspace(folder / "workspace")
 
     def test_cloud_confirmation_roundtrip_updates_local_wiki(self):
+        view = publish_dot_view(self.ws)
         remote = self.cloud()
         remote.feedback("本人确认近期以考试为优先", section="当前优先事项")
         returned = export_bundle(remote, self.root / "return.zip", returning=True)
         result = sync_incoming(self.ws, returned["bundle"])
         self.assertEqual(result["conflicts"], [])
         self.assertIn("本人确认近期以考试为优先", (self.ws.context / "wiki/关于用户/当前认识.md").read_text())
+        self.assertIn("本人确认近期以考试为优先", (view / "wiki/关于用户/当前认识.md").read_text())
 
     def test_concurrent_changes_keep_local_and_save_remote_copy(self):
         remote = self.cloud()
@@ -218,6 +285,102 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(config["sources"]["wechat"]["scope"]["include_ids"], ["friend"])
         self.assertNotIn("saved_schedule_ref", config["maintenance"])
         self.assertTrue((self.ws.root / "state/schedule-request.md").exists())
+
+    def test_schedules_keep_independent_refs_and_reconcile_changed_times(self):
+        from personal_agent.runtime import schedule
+        saved = schedule(self.ws, confirm='native://daily', executor='codex-local')
+        self.assertEqual(saved['tasks']['maintenance']['status'], 'confirmed')
+        self.assertEqual(saved['tasks']['calibration']['status'], 'awaiting_platform_schedule')
+        updated = schedule(self.ws, at='20:30')
+        self.assertEqual(updated['tasks']['maintenance']['status'], 'awaiting_platform_update')
+        self.assertEqual(updated['tasks']['maintenance']['saved_schedule_ref'], 'native://daily')
+        schedule(self.ws, task='calibration', disable=True)
+        before = self.ws.config
+        with patch('personal_agent.bootstrap.PROJECT', self.root / 'project'), redirect_stdout(io.StringIO()):
+            main(['-w', str(self.ws.root), 'bootstrap'])
+        self.assertEqual(self.ws.config, before)
+        self.assertFalse(schedule(self.ws)['tasks']['calibration']['selection']['enabled'])
+        self.assertNotIn('--confirm-ref', updated['tasks']['maintenance']['prompt'])
+
+    def test_chatgpt_app_discovers_selected_threads_and_resumes_both_cursors(self):
+        from personal_agent.chatgpt import discover, plan, record, snapshot_path
+        from personal_agent.parsers import parse_chatgpt_app
+        self.enable('chatgpt', self.ws.root / 'inbox/chatgpt', mode='app', scope={'include_ids': ['c1']})
+        discovered = discover(self.ws, {'threads': [{'id': 'c1', 'kind': 'chatgpt'}, {'id': 'c2', 'kind': 'chatgpt'}, {'id': 'local', 'kind': 'codex'}]})
+        self.assertEqual(discovered['discovered'], ['c1'])
+        def page(ident, text, next_cursor, moment):
+            return {'thread': {'id': 'c1', 'kind': 'chatgpt', 'title': '上下文', 'updatedAt': 1791720200},
+                    'page': {'order': 'newest_first', 'hasMore': next_cursor is not None, 'nextCursor': next_cursor},
+                    'turns': [{'startedAt': moment, 'items': [{'id': ident, 'type': 'agentMessage', 'text': text}]}]}
+        record(self.ws, page('m2', '第二页正文', 'older-1', 1791720100))
+        record(self.ws, page('m1', '更早正文', 'older-2', 1791720000), 'older-1')
+        record(self.ws, page('m4', '新正文', 'recent-gap', 1791720300))
+        requests = plan(self.ws)['requests']
+        self.assertIn('older-2', [r['args'].get('cursor') for r in requests])
+        self.assertIn('recent-gap', [r['args'].get('cursor') for r in requests])
+        record(self.ws, page('m2', '第二页已修订', 'older-1', 1791720100), 'recent-gap')
+        self.assertNotIn('recent_gap', [r['purpose'] for r in plan(self.ws)['requests']])
+        record(self.ws, page('m0', '最早正文', None, 1791719900), 'older-2')
+        meta, messages = parse_chatgpt_app(load(snapshot_path(self.ws, 'c1')))
+        self.assertEqual([m['text'] for m in messages], ['最早正文', '更早正文', '第二页已修订', '新正文'])
+        self.assertFalse(meta['more_history_available'])
+        Collector(self.ws).collect('chatgpt')
+        self.assertEqual(len(self.records('chatgpt')), 1)
+        self.assertEqual(self.records('chatgpt')[0]['messages'], 4)
+        config = self.ws.config
+        config['sources']['chatgpt']['enabled'] = False
+        write(self.ws.root / 'config.json', config)
+        self.assertEqual(plan(self.ws)['requests'], [])
+        self.assertEqual(record(self.ws, page('not-read', '未授权', None, 1791720500))['status'], 'disabled')
+
+    def test_long_chat_segments_resume_and_new_editions_revisit_changes(self):
+        p = self.root / 'chatgpt.json'
+        write(p, [conversation('原文' * 20)])
+        self.enable('chatgpt', p)
+        Collector(self.ws).collect('chatgpt')
+        publish_dot_view(self.ws)
+        first = load(job(self.ws, 'chatgpt', max_chars=12)['job'])
+        reading = first['sources'][0]['reading']
+        self.assertEqual(reading['start'], {'message': 0, 'offset': 0})
+        self.assertEqual(reading['next_read'], {'message': 0, 'offset': 12})
+        self.ws.record(first['response_example'])
+        second = load(job(self.ws, 'chatgpt', max_chars=12)['job'])
+        self.assertEqual(second['sources'][0]['reading']['start'], {'message': 0, 'offset': 12})
+        self.ws.record(second['response_example'])
+        third = load(job(self.ws, 'chatgpt', max_chars=12)['job'])
+        self.assertEqual(third['sources'][0]['reading']['start'], {'message': 0, 'offset': 24})
+        write(p, [conversation('更新' * 20, revision=3)])
+        Collector(self.ws).collect('chatgpt')
+        changed = load(job(self.ws, 'chatgpt', max_chars=12)['job'])
+        self.assertEqual(changed['sources'][0]['reading']['start'], {'message': 0, 'offset': 0})
+
+    def test_maintenance_merges_received_cloud_changes_and_publishes_after_reading(self):
+        from personal_agent.maintenance import finish, maintain
+        remote = self.cloud()
+        remote.feedback('云端确认的新目标', section='当前目标')
+        incoming = self.ws.root / 'exchange/incoming/return.zip'
+        export_bundle(remote, incoming, returning=True)
+        result = maintain(self.ws)
+        self.assertEqual(len(result['incoming']['results']), 1)
+        self.assertIn('云端确认的新目标', (self.ws.context / 'wiki/关于用户/当前认识.md').read_text())
+        self.assertNotIn('publication', result)
+        self.assertFalse((self.ws.root / 'exchange/outgoing/context.zip').exists())
+        self.assertEqual(maintain(self.ws)['incoming']['results'], [])
+        delivered = finish(self.ws)
+        self.assertEqual(delivered['delivery']['status'], 'packaged')
+        self.assertTrue(Path(delivered['delivery']['bundle']).exists())
+        with zipfile.ZipFile(delivered['delivery']['bundle']) as archive:
+            cloud_config = json.loads(archive.read('workspace/config.json'))
+        self.assertEqual(cloud_config['runtime']['workspace_role'], 'cloud')
+        self.assertTrue(cloud_config['maintenance']['enabled'])
+        self.assertTrue(cloud_config['maintenance']['calibration']['enabled'])
+        from personal_agent.runtime import schedule
+        self.assertTrue(all(t['status'] == 'managed_by_origin' for t in schedule(remote)['tasks'].values()))
+        config = self.ws.config
+        config['maintenance']['cloud_sync'] = False
+        write(self.ws.root / 'config.json', config)
+        self.assertEqual(maintain(self.ws)['incoming']['status'], 'disabled')
+        self.assertNotIn('delivery', finish(self.ws))
 
     def test_reply_change_outside_excerpt_still_updates_reading_revision(self):
         p = self.root / "chatgpt.json"
@@ -301,6 +464,137 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(ws.config["goals"], ["安排课程学习"])
         self.assertTrue(ws.config["sources"]["manual"]["enabled"])
         self.assertFalse(any(c["enabled"] for p, c in ws.config["sources"].items() if p != "manual"))
+        self.assertEqual(ws.status()['onboarding']['phase'], 'review')
+        self.assertGreater(ws.queue()['counts']['pending'], 0)
+
+    def test_record_refreshes_published_wiki_without_an_extra_dot_command(self):
+        view = publish_dot_view(self.ws)
+        item = self.ws.queue()['pending'][0]
+        page = 'wiki/想法与选择/目标与选择.md'
+        body = '# 当前目标\n\n先完成课程，再安排项目。\n'
+        self.ws.record({'reviews': [{'key': item['key'], 'revision': item['revision'], 'status': 'done'}],
+                        'wiki_updates': [{'path': page, 'content': body, 'source_keys': [item['key']]}]})
+        self.assertEqual((view / page).read_text(), body)
+
+    def test_narrowed_dates_remove_old_understanding_and_reject_old_returns(self):
+        p = self.root / 'scoped.json'
+        data = conversation('范围内的新安排')
+        data['mapping']['early'] = {'parent': None, 'message': {'author': {'role': 'user'}, 'content': {'parts': ['已经撤回的早期安排']}, 'create_time': 1700000000}}
+        data['mapping']['current']['parent'] = 'early'
+        write(p, [data])
+        self.enable('chatgpt', p, dot_share='sources')
+        Collector(self.ws).collect()
+        item = next(r for r in self.ws.queue()['pending'] if r['provider'] == 'chatgpt')
+        page = 'wiki/想法与选择/目标与选择.md'
+        old_response = {'reviews': [{'key': item['key'], 'revision': item['revision'], 'status': 'done', 'wiki_pages': [page]}],
+                        'wiki_updates': [{'path': page, 'content': '# 安排\n已经撤回的早期安排\n', 'source_keys': [item['key']]}]}
+        self.ws.record(old_response)
+        remote = self.cloud()
+        view = publish_dot_view(self.ws)
+        with redirect_stdout(io.StringIO()):
+            main(['-w', str(self.ws.root), 'sources', 'chatgpt', '--from', '2026-10-01'])
+        self.assertIn('范围内的新安排', (self.ws.context / item['document']).read_text())
+        self.assertNotIn('已经撤回的早期安排', (self.ws.context / item['document']).read_text())
+        self.assertNotIn('已经撤回的早期安排', (self.ws.context / page).read_text())
+        self.assertNotIn('已经撤回的早期安排', (view / page).read_text())
+        self.assertTrue(self.ws.record(old_response)['skipped'])
+        remote.apply_wiki([{'path': page, 'content': '# 云端旧依据\n已经撤回的早期安排\n', 'source_keys': [item['key']]}])
+        returned = export_bundle(remote, self.root / 'old-return.zip', returning=True)
+        self.assertTrue(sync_incoming(self.ws, returned['bundle'])['skipped'])
+        current = next(r for r in self.ws.queue()['pending'] if r['provider'] == 'chatgpt')
+        self.ws.record({'source_permissions': permissions(self.ws), 'reviews': [{'key': current['key'], 'revision': current['revision'], 'status': 'done'}],
+                        'wiki_updates': [{'path': page, 'content': '# 安排\n范围内的新安排\n', 'source_keys': [current['key']]}]})
+        self.assertIn('范围内的新安排', (view / page).read_text())
+        self.assertNotIn(page, self.ws.status()['wiki_rebuild']['pages'])
+        version = permissions(self.ws)['chatgpt']
+        Collector(self.ws).collect()
+        self.assertEqual(permissions(self.ws)['chatgpt'], version)
+        bundle = export_bundle(self.ws, returning=True)
+        with zipfile.ZipFile(bundle['bundle']) as archive:
+            self.assertNotIn('已经撤回的早期安排', '\n'.join(archive.read(n).decode() for n in archive.namelist()))
+
+    def test_withdraw_removes_views_and_exports_but_keeps_originals_until_requested(self):
+        p = self.root / 'selected-health.txt'
+        p.write_text('待撤回的虚构生活记录')
+        self.enable('health', p, dot_share='sources')
+        Collector(self.ws).collect()
+        key = self.records('health')[0]['key']
+        page = 'wiki/生活与健康/生活记录.md'
+        self.ws.apply_wiki([{'path': page, 'content': '# 生活\n待撤回的虚构生活记录\n本人仍愿保留的其他认识\n', 'source_keys': [key, 'manual:profile']}])
+        view = publish_dot_view(self.ws)
+        bundle = export_bundle(self.ws)
+        delivery_receipt(self.ws, {'status': 'uploaded', 'artifact_ref': 'fixture://selected-bundle'})
+        result = withdraw(self.ws, 'health')
+        self.assertTrue(list((self.ws.root / 'raw/health').glob('*')))
+        self.assertTrue(p.exists())
+        self.assertFalse(Path(bundle['bundle']).exists())
+        self.assertFalse(self.records('health'))
+        self.assertNotIn('待撤回的虚构生活记录', (view / page).read_text())
+        self.assertEqual(self.ws.status()['wiki_rebuild']['pages'][page]['source_keys'], ['manual:profile'])
+        self.assertEqual(result['remote'][0]['status'], 'pending')
+        recorded = record_withdrawal(self.ws, {'id': result['id'], 'remote': [{'artifact_ref': 'fixture://selected-bundle', 'status': 'removed', 'note': 'fixture native tool result'}]})
+        self.assertEqual(recorded['remote'][0]['status'], 'removed')
+        withdraw(self.ws, 'health', delete_raw=True)
+        self.assertFalse((self.ws.root / 'raw/health').exists())
+        self.assertTrue(p.exists())
+        self.assertTrue((view / 'wiki/想法与选择/目标与选择.md').exists())
+
+    def test_onboarding_resumes_through_confirmation_and_a_real_answer(self):
+        self.assertEqual(onboard(self.ws)['phase'], 'configure')
+        start = onboard(self.ws, {'stage': 'configured', 'question': '这周怎样安排课程和项目？'})
+        self.assertEqual(start['phase'], 'review')
+        item = self.ws.queue()['pending'][0]
+        self.ws.record({'reviews': [{'key': item['key'], 'revision': item['revision'], 'status': 'done'}]})
+        self.assertEqual(onboard(self.ws)['phase'], 'review')
+        page = 'wiki/关于用户/当前认识.md'
+        with self.assertRaises(ValueError):
+            onboard(self.ws, {'stage': 'used', 'question': '测试', 'answer': '尚未确认', 'wiki_pages': [page]})
+        onboard(self.ws, {'stage': 'reviewed', 'summary': '你希望兼顾课程与个人项目。', 'wiki_pages': [page]})
+        self.assertEqual(onboard(Workspace(self.ws.root))['phase'], 'confirm')
+        self.ws.feedback('本周项目只能投入五小时', section='本周约束')
+        step = onboard(self.ws, {'stage': 'confirmed', 'user_reply': '对，但这周项目只能投入五小时。', 'summary': '兼顾课程，本周项目限五小时。'})
+        self.assertEqual(step['phase'], 'first_use')
+        self.assertIn('本周项目只能投入五小时', (Path(step['context']) / page).read_text())
+        result = onboard(self.ws, {'stage': 'used', 'question': '这周怎样安排课程和项目？', 'answer': '先完成课程任务，项目按你确认的五小时安排两次工作。', 'wiki_pages': [page]})
+        self.assertEqual(result['phase'], 'ready')
+        self.assertEqual(onboard(Workspace(self.ws.root))['phase'], 'ready')
+
+    def test_narrowing_files_removes_old_views_but_disabling_only_pauses_collection(self):
+        folder = self.root / 'chosen-files'
+        folder.mkdir()
+        (folder / 'a.txt').write_text('不再提供的文件内容')
+        (folder / 'b.txt').write_text('继续提供的文件内容')
+        self.enable('health', folder, dot_share='sources')
+        Collector(self.ws).collect()
+        old = next(r for r in self.records('health') if r['title'] == 'a')
+        with redirect_stdout(io.StringIO()):
+            main(['-w', str(self.ws.root), 'sources', 'health', '--clear-paths', '--path', str(folder / 'b.txt')])
+        self.assertFalse((self.ws.context / old['document']).exists())
+        self.assertEqual([r['title'] for r in self.records('health')], ['b'])
+        with redirect_stdout(io.StringIO()):
+            main(['-w', str(self.ws.root), 'sources', 'health', '--disable'])
+        self.assertEqual([r['title'] for r in self.records('health')], ['b'])
+
+    def test_sharing_less_preserves_actual_local_reading_progress(self):
+        p = self.root / 'health.txt'
+        p.write_text('本地已读的虚构记录')
+        self.enable('health', p, dot_share='sources')
+        Collector(self.ws).collect()
+        self.ws.record({'reviews': [{'key': r['key'], 'revision': r['revision'], 'status': 'done'} for r in self.ws.queue()['pending']]})
+        before = self.ws.queue()['counts']
+        view = publish_dot_view(self.ws)
+        with redirect_stdout(io.StringIO()):
+            main(['-w', str(self.ws.root), 'sources', 'health', '--share', 'wiki'])
+        self.assertEqual(self.ws.queue()['counts'], before)
+        self.assertFalse((view / self.records('health')[0]['document']).exists())
+
+    def test_withdrawn_self_description_retains_local_original_only(self):
+        self.ws.feedback('本人明确的虚构背景', section='背景')
+        withdraw(self.ws, 'manual')
+        saved = '\n'.join(p.read_text() for p in (self.ws.root / 'raw/manual').glob('*.md'))
+        self.assertIn('本人明确的虚构背景', saved)
+        self.assertFalse(self.records('manual'))
+        self.assertEqual(self.ws.config['goals'], [])
 
 
 if __name__ == "__main__":

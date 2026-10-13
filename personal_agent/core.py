@@ -55,7 +55,7 @@ class Workspace:
     def config(self):
         value = load(self.root / "config.json")
         if value is None:
-            raise ValueError("工作区尚未创建，请先运行 init 或 setup")
+            raise ValueError("工作区尚未创建，请先执行 bootstrap，也可使用 init 或 setup")
         return value
 
     def now(self):
@@ -66,6 +66,14 @@ class Workspace:
 
     def save_catalog(self, value):
         write(self.root / "state/catalog.json", value)
+
+    def refresh_published(self):
+        # A workspace starts publishing only when dot/onboarding creates its
+        # entry. Subsequent writes keep that same entry current.
+        if (self.root / "state/dot-view.json").exists():
+            from .delivery import publish_dot_view
+            return str(publish_dot_view(self))
+        return None
 
     def create(self, name=None, timezone=None, goal=None):
         first = not (self.root / "config.json").exists()
@@ -102,6 +110,8 @@ class Workspace:
                     updates.append({"path": "wiki/想法与选择/目标与选择.md", "content": "# 目标与选择\n\n" + f"更新时间：{self.now()}。\n\n## 当前目标\n\n" + "\n".join(f"- {g}" for g in config["goals"]) + f"\n\n[本人填写](../../{record['document']})\n", "source_keys": [key]})
                 self.apply_wiki(updates)
         self.refresh()
+        from .bootstrap import context_entry
+        write(self.context / 'BOOTSTRAP.md', context_entry(self))
         return {"workspace": str(self.root), "context": str(self.context), "created": first}
 
     def put(self, provider, ident, title, body, last="", origin="", **metadata):
@@ -125,9 +135,11 @@ class Workspace:
             if record.get("provenance_only"):
                 continue
             options = config["sources"].get(record["provider"], {})
-            if options.get("processing") != "digest":
+            if options.get("processing") != "digest" or not options.get("use_allowed", True):
                 continue
             revision = {"document": record["document"], "edition": record["edition"]}
+            if options.get("permission_version", 0):
+                revision["permission_version"] = options["permission_version"]
             previous = reviews.get(key)
             current = previous and previous.get("revision") == revision
             item = {**record, "revision": revision, "previous_review": previous}
@@ -180,6 +192,7 @@ class Workspace:
 
     def apply_wiki(self, updates):
         registry = load(self.root / "state/wiki-provenance.json", {"pages": {}})
+        repairs = load(self.root / "state/wiki-rebuild.json", {"pages": {}})
         applied, conflicts = [], []
         prepared = []
         catalog = self.catalog()["records"]
@@ -199,25 +212,46 @@ class Workspace:
                 continue
             write(path, item["content"])
             registry["pages"][item["path"]] = {"source_keys": item.get("source_keys", []), "updated": self.now()}
+            repairs["pages"].pop(item["path"], None)
             applied.append(item["path"])
         write(self.root / "state/wiki-provenance.json", registry)
+        write(self.root / "state/wiki-rebuild.json", repairs)
         return {"applied": applied, "conflicts": conflicts}
 
     def record(self, response):
         if isinstance(response, list):
             response = {"reviews": response}
-        reviews = response.get("reviews", [])
-        for review in reviews:
-            if review["key"] not in self.catalog()["records"] or review["status"] not in ("done", "partial"):
+        from .privacy import permissions
+        current_permissions = permissions(self)
+        supplied = response.get("source_permissions", {})
+        reviews, skipped = [], []
+        catalog = self.catalog()["records"]
+        for review in response.get("reviews", []):
+            provider = review["key"].split(":", 1)[0]
+            version = review.get("revision", {}).get("permission_version", supplied.get(provider, 0))
+            if provider in current_permissions and version != current_permissions[provider]:
+                skipped.append({"source": review["key"], "reason": "资料使用范围已改变，旧回执不恢复已撤回内容。"})
+                continue
+            if review["key"] not in catalog or review["status"] not in ("done", "partial"):
                 raise ValueError("阅读回执需要当前来源 key 和 done/partial 状态")
             if "revision" not in review:
                 raise ValueError("回执须包含实际读到的 revision")
-        wiki = self.apply_wiki(response.get("wiki_updates", []))
+            reviews.append(review)
+        updates = []
+        for update in response.get("wiki_updates", []):
+            providers = {key.split(":", 1)[0] for key in update.get("source_keys", [])}
+            if any(supplied.get(p, 0) != current_permissions.get(p, 0) or not self.config["sources"].get(p, {}).get("use_allowed", True) for p in providers):
+                skipped.append({"page": update["path"], "reason": "资料使用范围已改变，请按当前任务重新整理此页。"})
+            else:
+                updates.append(update)
+        wiki = self.apply_wiki(updates)
         state = load(self.context / "state/digest.json", {"records": {}})
         for review in reviews:
             state["records"][review["key"]] = {**review, "reviewed_at": self.now()}
         write(self.context / "state/digest.json", state)
-        return {"wiki": wiki, **self.refresh()}
+        result = {"wiki": wiki, "skipped": skipped, **self.refresh()}
+        result["dot_context"] = self.refresh_published()
+        return result
 
     def feedback(self, text, page="wiki/关于用户/当前认识.md", section="最新本人确认", source_id=None):
         ident = source_id or f"feedback-{uuid.uuid4().hex}"
@@ -231,8 +265,9 @@ class Workspace:
         keys = registry["pages"].get(page, {}).get("source_keys", [])
         result = self.apply_wiki([{"path": page, "content": content, "source_keys": list(dict.fromkeys([*keys, item["key"]]))}])
         self.refresh()
-        return {"source_key": item["key"], **result}
+        return {"source_key": item["key"], **result, "dot_context": self.refresh_published()}
 
     def status(self):
+        from .chatgpt import capture_status
         catalog = self.catalog()
-        return {"workspace": str(self.root), "context": str(self.context), "sources": {p: {"enabled": c["enabled"], "processing": c["processing"], "dot_share": c["dot_share"], "records": sum(r["provider"] == p for r in catalog["records"].values()), "last_run": catalog["sources"].get(p)} for p, c in self.config["sources"].items()}, "digestion": self.queue()["counts"], "delivery": load(self.root / "state/delivery.json", {}), "sync": load(self.root / "state/sync.json", {}), "maintenance": self.config["maintenance"]}
+        return {"workspace": str(self.root), "context": str(self.context), "sources": {p: {"enabled": c["enabled"], "processing": c["processing"], "dot_share": c["dot_share"], "records": sum(r["provider"] == p for r in catalog["records"].values()), "last_run": catalog["sources"].get(p)} for p, c in self.config["sources"].items()}, "digestion": self.queue()["counts"], "chatgpt_capture": capture_status(self), "delivery": load(self.root / "state/delivery.json", {}), "sync": load(self.root / "state/sync.json", {}), "maintenance": self.config["maintenance"], "dot_view": load(self.root / "state/dot-view.json", {}), "onboarding": load(self.root / "state/onboarding.json", {"phase": "configure"}), "withdrawals": load(self.root / "state/withdrawals.json", {"actions": []}), "wiki_rebuild": load(self.root / "state/wiki-rebuild.json", {"pages": {}})}

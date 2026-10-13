@@ -14,6 +14,7 @@
     },
     "codex": {
       "enabled": false,
+      "mode": "local",
       "paths": [],
       "scope": {
         "main_conversations_only": true,
@@ -27,7 +28,7 @@
     },
     "chatgpt": {
       "enabled": false,
-      "mode": "export",
+      "mode": "app",
       "paths": [],
       "scope": {
         "from": null,
@@ -80,8 +81,16 @@
     "uploader_command": []
   },
   "maintenance": {
-    "enabled": false,
-    "frequency": null,
+    "enabled": true,
+    "frequency": "daily",
+    "time": "21:00",
+    "cloud_sync": true,
+    "calibration": {
+      "enabled": true,
+      "frequency": "weekly",
+      "day": "SU",
+      "time": "10:00"
+    },
     "notify_on": [
       "understanding_changed",
       "action_needed",

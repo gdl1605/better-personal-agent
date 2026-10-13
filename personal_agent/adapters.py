@@ -144,7 +144,7 @@ class Collector:
                     continue
                 messages = [m for m in messages if selected(record["id"], m["time"], options.get("scope", {}), self.tz)]
                 messages = self.clean("chatgpt", messages)
-                self.dialogue("chatgpt", record["id"], record["title"], messages, self.archive("chatgpt", path), {"source_revision": record["revision"], "source_kind": "app_snapshot" if app else "account_export", "member": member, "conversation_index": index})
+                self.dialogue("chatgpt", record["id"], record["title"], messages, self.archive("chatgpt", path), {"source_revision": record["revision"], "source_kind": "app_snapshot" if app else "account_export", "member": member, "conversation_index": index, **({"more_history_available": record['more_history_available'], "truncated_messages": record['truncated_messages']} if app else {})})
 
     def database(self):
         db = sqlite3.connect(self.ws.root / "state/wechat.sqlite3")
@@ -388,18 +388,24 @@ class Collector:
         return {"items": list(result.values()), "next_action": "按标题选择后用 --include/--exclude 保存对应 ID；文件来源也可直接选择路径。"}
 
     def collect(self, only=None, force=False):
+        from .privacy import change_selection
         results = {}
         for provider in PROVIDERS:
             options = self.config["sources"][provider]
-            if not options["enabled"] or (only and provider != only):
+            if not options["enabled"] or not options.get("use_allowed", True) or (only and provider != only):
                 continue
             before = self.ws.catalog()["sources"].get(provider, {})
-            result = {"status": "collected", "files_read": 0, "unchanged_files": 0, "errors": [], "issues": [], "scope": options.get("scope", {}), "file_signatures": before.get("file_signatures", {})}
-            if before.get("scope") != options.get("scope", {}) and provider in ("codex", "chatgpt", "health", "manual"):
-                catalog = self.ws.catalog()
-                catalog["records"] = {k: v for k, v in catalog["records"].items() if v["provider"] != provider or (provider == "manual" and not v.get("format"))}
-                self.ws.save_catalog(catalog)
+            if before:
+                previous = before.get("selection", {**options, "scope": before.get("scope", {})})
+                change_selection(self.ws, provider, previous, options)
+                self.config = self.ws.config
+                options = self.config["sources"][provider]
+                before = self.ws.catalog()["sources"].get(provider, {})
+            result = {"status": "collected", "files_read": 0, "unchanged_files": 0, "errors": [], "issues": [], "scope": options.get("scope", {}), "selection": deepcopy(options), "file_signatures": before.get("file_signatures", {})}
             choices = options.get("paths") or [str(self.ws.root / "inbox" / provider)]
+            if provider == 'chatgpt' and options.get('mode') == 'app':
+                (self.ws.root / 'inbox/chatgpt/app').mkdir(parents=True, exist_ok=True)
+                choices = list(dict.fromkeys([*choices, str(self.ws.root / 'inbox/chatgpt/app')]))
             extensions = {"codex": {".jsonl"}, "chatgpt": {".json", ".zip"}, "wechat": {".json", ".md", ".txt"}, "payments": {".csv", ".zip", ".xlsx"}}.get(provider, {".md", ".txt", ".json", ".csv"})
             if provider == "codex" and options.get("mode") == "local" and not options.get("paths"):
                 choices = [str(Path.home() / ".codex/sessions"), str(Path.home() / ".codex/archived_sessions")]
@@ -439,11 +445,13 @@ class Collector:
                 result["status"] = "with_errors"
             elif not result["files_read"] and not result["unchanged_files"] and options.get("mode") != "cli":
                 result.update(status="needs_input", next_action=f"向 {self.ws.root / 'inbox' / provider} 投放支持的文件，或选择已有资料路径。", supported_formats=sorted(extensions))
+                if provider == 'chatgpt' and options.get('mode') == 'app':
+                    result.update(status='awaiting_app_capture', next_action='当前 Agent 执行 chatgpt 获取真实 App 请求，发现会话、分页读取并保存返回，再 collect；无需本人手工导出已有工具可读取的会话。')
             result["at"] = self.ws.now()
             state = self.ws.catalog()
             state["sources"][provider] = result
             self.ws.save_catalog(state)
-            results[provider] = {k: v for k, v in result.items() if k != "file_signatures"}
+            results[provider] = {k: v for k, v in result.items() if k not in ("file_signatures", "selection")}
         queue = self.ws.refresh()
         write(self.ws.root / "state/redaction.json", {"at": self.ws.now(), "replacement_positions": sum(self.redactions.values()), "rules": self.redactions})
-        return {"sources": results, "redaction_positions": sum(self.redactions.values()), "digestion": queue["counts"]}
+        return {"sources": results, "redaction_positions": sum(self.redactions.values()), "digestion": queue["counts"], "dot_context": self.ws.refresh_published()}

@@ -10,3 +10,4 @@ __pycache__/
 /state/
 /exports/
 /config.json
+/.personal-agent/
