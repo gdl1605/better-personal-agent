@@ -194,6 +194,8 @@ def sync_incoming(ws, incoming, refresh=True):
                    or sharing[remote_config["sources"].get(p, {}).get("dot_share", "none")] > sharing[ws.config["sources"][p]["dot_share"]]}
         remote_records = load(remote / "state/catalog.json", {"records": {}})["records"]
         remote_pages = load(remote / "state/wiki-provenance.json", {"pages": {}})["pages"]
+        forward = ws.config['runtime'].get('workspace_role') == 'cloud' and manifest['kind'] == 'personal_context'
+        shared_base = load(ws.root / 'state/sync-base.json', {'wiki': {}})['wiki'] if forward else manifest['baseline']['wiki']
         catalog = ws.catalog()
         conflicts, imported, skipped = [], [], []
         for key, record in remote_records.items():
@@ -201,7 +203,7 @@ def sync_incoming(ws, incoming, refresh=True):
             if provider in blocked:
                 skipped.append({"source": key, "reason": "本人已改变该来源的使用范围，旧副本不再合入。"})
                 continue
-            if provider not in ws.config["sources"] or (not ws.config["sources"][provider]["enabled"] and key not in catalog["records"]):
+            if provider not in ws.config["sources"] or (not ws.config["sources"][provider]["enabled"] and key not in catalog["records"] and not (forward and allowed_record(ws, record))):
                 continue
             document = within(context, record["document"], "sources")
             if not document.exists():
@@ -233,7 +235,7 @@ def sync_incoming(ws, incoming, refresh=True):
             if any(k.split(":", 1)[0] in blocked for k in keys):
                 skipped.append({"page": relative, "reason": "页面依据的资料使用范围已改变。"})
                 continue
-            base = manifest["baseline"]["wiki"].get(relative)
+            base = shared_base.get(relative)
             remote_text = path.read_text()
             local_path = within(ws.context, relative, "wiki")
             local = local_path.read_text() if local_path.exists() else None
@@ -244,6 +246,15 @@ def sync_incoming(ws, incoming, refresh=True):
                 continue
             updates.append({"path": relative, "content": remote_text, "source_keys": keys, **({"base_content": base} if base is not None else {"base_content": ""})})
         applied = ws.apply_wiki(updates)
+        if forward:
+            # Advance only pages whose new common value is present locally.
+            # Conflicting pages keep their previous base for the return merge.
+            for relative in manifest['wiki_pages']:
+                local_path = within(ws.context, relative, 'wiki')
+                remote_path = within(context, relative, 'wiki')
+                if local_path.exists() and remote_path.exists() and local_path.read_text() == remote_path.read_text():
+                    shared_base[relative] = remote_path.read_text()
+            write(ws.root / 'state/sync-base.json', {'wiki': shared_base})
         reviews = load(context / "state/digest.json", {"records": {}})["records"]
         current = load(ws.context / "state/digest.json", {"records": {}})
         for key, review in reviews.items():

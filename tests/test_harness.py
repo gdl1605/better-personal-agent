@@ -301,6 +301,9 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(self.ws.config, before)
         self.assertFalse(schedule(self.ws)['tasks']['calibration']['selection']['enabled'])
         self.assertNotIn('--confirm-ref', updated['tasks']['maintenance']['prompt'])
+        schedule(self.ws, cancelled=True)
+        self.assertNotIn('saved_schedule_ref', self.ws.config['maintenance'])
+        self.assertEqual(schedule(self.ws)['tasks']['maintenance']['status'], 'disabled')
 
     def test_chatgpt_app_discovers_selected_threads_and_resumes_both_cursors(self):
         from personal_agent.chatgpt import discover, plan, record, snapshot_path
@@ -314,7 +317,9 @@ class HarnessTests(unittest.TestCase):
                     'turns': [{'startedAt': moment, 'items': [{'id': ident, 'type': 'agentMessage', 'text': text}]}]}
         record(self.ws, page('m2', '第二页正文', 'older-1', 1791720100))
         record(self.ws, page('m1', '更早正文', 'older-2', 1791720000), 'older-1')
-        record(self.ws, page('m4', '新正文', 'recent-gap', 1791720300))
+        head = page('m4', '新正文', 'recent-gap', 1791720300)
+        head['turns'].append(page('m3', '旧头部较早消息', 'recent-gap', 1791720200)['turns'][0])
+        record(self.ws, head)
         requests = plan(self.ws)['requests']
         self.assertIn('older-2', [r['args'].get('cursor') for r in requests])
         self.assertIn('recent-gap', [r['args'].get('cursor') for r in requests])
@@ -322,11 +327,19 @@ class HarnessTests(unittest.TestCase):
         self.assertNotIn('recent_gap', [r['purpose'] for r in plan(self.ws)['requests']])
         record(self.ws, page('m0', '最早正文', None, 1791719900), 'older-2')
         meta, messages = parse_chatgpt_app(load(snapshot_path(self.ws, 'c1')))
-        self.assertEqual([m['text'] for m in messages], ['最早正文', '更早正文', '第二页已修订', '新正文'])
+        self.assertEqual([m['text'] for m in messages], ['最早正文', '更早正文', '第二页已修订', '旧头部较早消息', '新正文'])
         self.assertFalse(meta['more_history_available'])
+        # An overlapping refreshed head must retain messages that have fallen
+        # off the page, not merely the pages reached by historical cursors.
+        refreshed = page('m5', '另一条新正文', 'known-history', 1791720400)
+        refreshed['turns'].append(page('m4', '新正文已改', None, 1791720300)['turns'][0])
+        record(self.ws, refreshed)
+        meta, messages = parse_chatgpt_app(load(snapshot_path(self.ws, 'c1')))
+        self.assertEqual([m['text'] for m in messages], ['最早正文', '更早正文', '第二页已修订', '旧头部较早消息', '新正文已改', '另一条新正文'])
         Collector(self.ws).collect('chatgpt')
         self.assertEqual(len(self.records('chatgpt')), 1)
-        self.assertEqual(self.records('chatgpt')[0]['messages'], 4)
+        self.assertEqual(self.records('chatgpt')[0]['messages'], 6)
+        self.assertEqual(self.ws.status()['chatgpt_capture']['known_threads'], 1)
         config = self.ws.config
         config['sources']['chatgpt']['enabled'] = False
         write(self.ws.root / 'config.json', config)
@@ -356,6 +369,10 @@ class HarnessTests(unittest.TestCase):
 
     def test_maintenance_merges_received_cloud_changes_and_publishes_after_reading(self):
         from personal_agent.maintenance import finish, maintain
+        p = self.root / 'chats.json'
+        write(p, [conversation()])
+        self.enable('chatgpt', p, mode='export', dot_share='sources')
+        Collector(self.ws).collect('chatgpt')
         remote = self.cloud()
         remote.feedback('云端确认的新目标', section='当前目标')
         incoming = self.ws.root / 'exchange/incoming/return.zip'
@@ -366,6 +383,10 @@ class HarnessTests(unittest.TestCase):
         self.assertNotIn('publication', result)
         self.assertFalse((self.ws.root / 'exchange/outgoing/context.zip').exists())
         self.assertEqual(maintain(self.ws)['incoming']['results'], [])
+        second = {**conversation('本地新增材料'), 'id': 'conversation-two'}
+        write(p, [conversation(), second])
+        Collector(self.ws).collect('chatgpt')
+        self.ws.feedback('本地确认可以开始新项目', page='wiki/想法与选择/目标与选择.md', section='当前安排')
         delivered = finish(self.ws)
         self.assertEqual(delivered['delivery']['status'], 'packaged')
         self.assertTrue(Path(delivered['delivery']['bundle']).exists())
@@ -376,6 +397,14 @@ class HarnessTests(unittest.TestCase):
         self.assertTrue(cloud_config['maintenance']['calibration']['enabled'])
         from personal_agent.runtime import schedule
         self.assertTrue(all(t['status'] == 'managed_by_origin' for t in schedule(remote)['tasks'].values()))
+        forwarded = sync_incoming(remote, delivered['delivery']['bundle'])
+        self.assertFalse(forwarded['conflicts'])
+        self.assertIn('chatgpt:conversation-two', remote.catalog()['records'])
+        self.assertIn('本地确认可以开始新项目', (remote.context / 'wiki/想法与选择/目标与选择.md').read_text())
+        remote.feedback('云端随后补充了项目时间', page='wiki/想法与选择/目标与选择.md', section='当前安排')
+        returning = finish(remote)['delivery']['bundle']
+        self.assertFalse(sync_incoming(self.ws, returning)['conflicts'])
+        self.assertIn('云端随后补充了项目时间', (self.ws.context / 'wiki/想法与选择/目标与选择.md').read_text())
         config = self.ws.config
         config['maintenance']['cloud_sync'] = False
         write(self.ws.root / 'config.json', config)

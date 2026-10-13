@@ -139,9 +139,11 @@ def record(ws, page, cursor=None):
     if cursor is None:
         item['updated_at'] = thread.get('updatedAt')
     item.update(title=thread.get('title', ident), captured_at=ws.now(), snapshot=str(path))
-    item['truncated'] = any(i.get('truncated') or i.get('textTruncated') for p in pages for t in p.get('turns', []) for i in t.get('items', []))
     item['coverage'] = 'available_tool_pages'
     snapshot['history_complete'] = item.get('history_complete', False) and not item.get('head_cursor')
+    from .parsers import parse_chatgpt_app
+    metadata, _ = parse_chatgpt_app(snapshot)
+    item['truncated'] = metadata['truncated_messages'] > 0
     write(path, snapshot)
     write(state_path(ws), state)
     return {'status': 'captured', 'thread_id': ident, **item,

@@ -189,7 +189,7 @@ python3 personal-agent -w ~/PersonalContext status
 
 新工作区默认按用户时区每天 21:00 同步续读、每周日 10:00 校准，可以调整；旧工作区已有设置与关闭选择保留。schedule 返回两项 `tasks`，各自包含 selection、prompt、request、已登记引用和状态。当前 Agent 在初始化期间用实际 dot schedule 或 Codex automation_update 保存，Codex 默认使用当前聊天 heartbeat。校准优先 dot 云端；只有本地工具时如实登记实际位置，不能声称云端独立运行。已存在的同职责任务更新原引用，不重复创建。
 
-平台保存后分别 `--confirm-ref` 登记，保留实际安排和正文；之后修改时间、时区或任务内容会提示待更新原任务。取消选择用 `schedule --task maintenance|calibration --disable`，已有平台任务由当前 Agent 取消并读取真实结果。生成说明、登记选择和平台保存是不同状态。
+平台保存后分别 `--confirm-ref` 登记，保留实际安排和正文；之后修改时间、时区或任务内容会提示待更新原任务。取消选择用 `schedule --task maintenance|calibration --disable`，已有平台任务由当前 Agent 取消并读取真实结果，再用同一 task 的 `--cancelled` 清除引用。生成说明、登记选择和平台保存是不同状态。云端副本保留维护选择供实际任务执行，但 schedule 返回 `managed_by_origin`，由原初始化入口维护日程，避免再次创建。
 
 maintain 返回完整 `instructions`，先合并已取回的返回包，收取本机更新，并返回 ChatGPT 原生工具请求和消化任务。Agent 按说明取得新页、云端更新后再次 maintain 刷新任务；实际理解后 `maintain --finish` 发布当前 Wiki 与获准副本。没有 Agent 适配器时，本命令不把任务生成当成理解完成，也不在阅读前交付本轮最终结果；显式 `--run-agent` 则应用适配器的真实回执后继续发布。
 
