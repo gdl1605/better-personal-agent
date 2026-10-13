@@ -147,4 +147,4 @@ MIT 许可覆盖项目代码、通用文档、提示词、模板和虚构示例�
 
 ---
 
-当前代码版本：0.1.0。[使用引导](BOOTSTRAP.md) · [资料导入](docs/onboarding.md#各来源的操作说明) · [资料与隐私](docs/privacy-and-sync.md) · [项目文档](docs/architecture.md) · [MIT License](LICENSE)
+当前版本：[v0.1.0](https://github.com/gdl1605/personal-agent/releases/tag/v0.1.0)。[使用引导](BOOTSTRAP.md) · [资料导入](docs/onboarding.md#各来源的操作说明) · [资料与隐私](docs/privacy-and-sync.md) · [项目文档](docs/architecture.md) · [MIT License](LICENSE)

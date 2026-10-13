@@ -1,8 +1,12 @@
 # 更新记录
 
-记录对使用者和贡献者有意义的变化。当前代码版本为 `0.1.0`；以下按未发布内容整理，历史能力依据仓库提交补记，不代表已创建 Git tag 或 GitHub Release。
+记录对使用者和贡献者有意义的变化。已发布版本对应同名 Git tag 和 GitHub Release，后续改动记在 Unreleased。
 
 ## [Unreleased]
+
+后续改动将在此记录。
+
+## [0.1.0] - 2026-10-13
 
 ### Wiki 与资料导入修正
 
@@ -20,7 +24,7 @@
 - README 补充源码获取、运行环境、开源协作入口和非官方说明；忽略本地 `.env` 配置。
 - 上下文导出包内的可运行工具携带许可证与项目说明，再次导出时继续保留；个人上下文不因随包交付而成为 MIT 开源内容。
 
-### 既有 0.1.0 能力（2026-10-13 补记）
+### 首次发布能力
 
 - 提供统一 CLI、自然语言 Bootstrap、独立个人工作区与可续接的首次引导。
 - 按用户选择接入 Codex、ChatGPT、微信、消费、健康和自述资料，分别保存来源范围、处理方式与云端提供范围。
@@ -30,6 +34,7 @@
 - 将日常同步续读与独立理解校准交给实际平台调度，并保存真实任务引用。
 - 修正 ChatGPT 新消息与历史分页的续接，以及云端修改返回本地的增量合并。
 
-补记依据：[初始实现 de28272](https://github.com/gdl1605/personal-agent/commit/de28272)、[引导与维护完善 19da9be](https://github.com/gdl1605/personal-agent/commit/19da9be)、[分页与合并修正 687d252](https://github.com/gdl1605/personal-agent/commit/687d252)。运行边界与后续方向见[当前实现与后续建设](docs/roadmap.md)。
+实现历史：[初始实现 de28272](https://github.com/gdl1605/personal-agent/commit/de28272)、[引导与维护完善 19da9be](https://github.com/gdl1605/personal-agent/commit/19da9be)、[分页与合并修正 687d252](https://github.com/gdl1605/personal-agent/commit/687d252)。运行边界与后续方向见[当前实现与后续建设](docs/roadmap.md)。
 
-正式发布时，将相应未发布条目归入实际版本和发布日期，并与代码版本及发布引用保持一致。
+[Unreleased]: https://github.com/gdl1605/personal-agent/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/gdl1605/personal-agent/releases/tag/v0.1.0
