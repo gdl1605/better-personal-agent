@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: 安全、隐私与凭据问题
-    url: https://github.com/gdl1605/your-life-as-context/blob/main/SECURITY.md
+    url: https://github.com/gdl1605/better-personal-agent/blob/main/SECURITY.md
     about: 请按安全说明联系维护者，不要公开提交秘密值或个人资料。
   - name: 使用与支持说明
-    url: https://github.com/gdl1605/your-life-as-context/blob/main/SUPPORT.md
+    url: https://github.com/gdl1605/better-personal-agent/blob/main/SUPPORT.md
     about: 使用入口、命令协议、能力范围与反馈渠道。

@@ -1,6 +1,6 @@
 # 贡献指南
 
-欢迎改进 Personal Agent Harness。普通问题和功能建议可通过 [GitHub Issues](https://github.com/gdl1605/your-life-as-context/issues) 提出；涉及个人资料泄露或安全漏洞时，请使用[私密报告渠道](SECURITY.md)。
+欢迎改进 Personal Agent Harness。普通问题和功能建议可通过 [GitHub Issues](https://github.com/gdl1605/better-personal-agent/issues) 提出；涉及个人资料泄露或安全漏洞时，请使用[私密报告渠道](SECURITY.md)。
 
 ## 项目范围
 
@@ -19,8 +19,8 @@
 开发与 CI 使用 Python 3.12。当前运行代码和测试只依赖标准库，无需安装 pip 依赖；`zoneinfo` 使用系统时区数据库。其他 Python 版本或操作系统的兼容性，以实际验证结果为准。实际使用 dot、平台调度或微信本机工具时，还需要对应环境能力。
 
 ```bash
-git clone https://github.com/gdl1605/your-life-as-context.git
-cd your-life-as-context
+git clone https://github.com/gdl1605/better-personal-agent.git
+cd better-personal-agent
 python3 personal-agent --help
 ```
 
@@ -70,7 +70,7 @@ Fork 后向 `main` 发起 PR，一次围绕一个明确问题。说明触发条�
 
 命令或用户行为改变时，更新拥有该事实的文档及 [CHANGELOG](CHANGELOG.md) 的未发布条目；不需要在每份文档重复维护同一事实。版本号位于 [personal_agent/__init__.py](personal_agent/__init__.py)，普通贡献无需自行升版或创建发布。
 
-CI 复用现有 `unittest` 测试；其配置见[测试工作流](https://github.com/gdl1605/your-life-as-context/blob/main/.github/workflows/tests.yml)。
+CI 复用现有 `unittest` 测试；其配置见[测试工作流](https://github.com/gdl1605/better-personal-agent/blob/main/.github/workflows/tests.yml)。
 
 ## 许可与社区
 

@@ -1,6 +1,6 @@
 # 许可、来源与项目归属
 
-your-life-as-context 由 [gdl1605](https://github.com/gdl1605) 维护，项目地址为 [gdl1605/your-life-as-context](https://github.com/gdl1605/your-life-as-context)。
+Better Personal Agent 由 [gdl1605](https://github.com/gdl1605) 维护，项目地址为 [gdl1605/better-personal-agent](https://github.com/gdl1605/better-personal-agent)。
 
 ## 许可范围
 
@@ -16,7 +16,7 @@ your-life-as-context 由 [gdl1605](https://github.com/gdl1605) 维护，项目�
 | --- | --- |
 | 聊天、账单和表格解析 | 从维护者原个人上下文库迁入通用解析方法，见 [parsers.py](personal_agent/parsers.py)；来源映射由[数据源与复用记录](docs/sources-and-reuse.md)维护。原库个人资料不随源码分发。 |
 | 来源选择、阅读回执、Wiki 维护和双向交付 | 在本仓库的 [personal_agent/](personal_agent/) 实现；通用模板位于 [templates/context/](templates/context/)，流程说明位于 [prompts/](prompts/)。 |
-| 微信凭据初筛 | 从本地原型提取并整理为 [credentials.py](personal_agent/credentials.py)，源码仓库另提供独立入口 [redact_wechat.py](https://github.com/gdl1605/your-life-as-context/blob/main/scripts/redact_wechat.py)；处理范围见[微信初筛说明](docs/wechat-redaction.md)。 |
+| 微信凭据初筛 | 从本地原型提取并整理为 [credentials.py](personal_agent/credentials.py)，源码仓库另提供独立入口 [redact_wechat.py](https://github.com/gdl1605/better-personal-agent/blob/main/scripts/redact_wechat.py)；处理范围见[微信初筛说明](docs/wechat-redaction.md)。 |
 | 开源协作文件 | 结构参考同一维护者的 [Codex-teammode Workflow](https://github.com/gdl1605/codex-teammode-workflow)，沿用 MIT 许可与公开维护邮箱，并按本项目运行方式改写。 |
 | 社区行为规范 | [行为准则](CODE_OF_CONDUCT.md)引用 Contributor Covenant v2.1；外部规范全文的许可由其原始发布方说明。 |
 
