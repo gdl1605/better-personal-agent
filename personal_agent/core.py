@@ -109,6 +109,8 @@ class Workspace:
                 updates = [{"path": "wiki/关于用户/当前认识.md", "content": f"# 当前认识\n\n更新时间：{self.now()}。主职责：本人明确提供的核心信息。\n\n## 本人明确表达\n\n称呼：{config['owner']['display_name']}。\n\n[初始填写](../../{record['document']})\n\n## 其他背景与约束\n\n随本人表达和实际材料增量维护。\n", "source_keys": [key]}]
                 if config["goals"]:
                     updates.append({"path": "wiki/想法与选择/目标与选择.md", "content": "# 目标与选择\n\n" + f"更新时间：{self.now()}。\n\n## 当前目标\n\n" + "\n".join(f"- {g}" for g in config["goals"]) + f"\n\n[本人填写](../../{record['document']})\n", "source_keys": [key]})
+                brief = "# 基本信息简要\n\n" + f"更新时间：{self.now()}。主职责：日常个人问题的简要入口，事实与依据由链接的详情页拥有。\n\n## 当前基本认识\n\n" + f"称呼：{config['owner']['display_name']}。详情：[当前认识](当前认识.md)。\n\n## 当前目标\n\n" + ("\n".join(f"- {g}" for g in config['goals']) or "待本人表达后补充。") + "\n\n详情：[目标与选择](../想法与选择/目标与选择.md)。目标适用范围随后续本人确认更新。\n\n## 按主题展开\n\n- [人物关系概述](../生活与健康/人物关系概述.md)\n- [行为习惯概述](../生活与健康/行为习惯概述.md)\n- [协作偏好](../想法与选择/协作偏好.md)\n\n新信息按[读取与回写](../上下文系统/读取与回写.md)更新详情与受影响概述。\n"
+                updates.append({"path": "wiki/关于用户/基本信息简要.md", "content": brief, "source_keys": [key]})
                 self.apply_wiki(updates)
         self.refresh()
         from .bootstrap import context_entry
@@ -275,7 +277,8 @@ class Workspace:
         keys = registry["pages"].get(page, {}).get("source_keys", [])
         result = self.apply_wiki([{"path": page, "content": content, "source_keys": list(dict.fromkeys([*keys, item["key"]]))}])
         self.refresh()
-        return {"source_key": item["key"], **result, "dot_context": self.refresh_published()}
+        return {"source_key": item["key"], **result, "dot_context": self.refresh_published(),
+                "next_action": f"当前 Agent 读取刚修改的 {page} 及受影响概述，按读取与回写规则判断局部概述、主题概述和基本信息简要是否需要修订；有语义变化时用 digest record 同轮保存，保留各页实际来源。feedback 已保存本人原话与指定条目，概述的语义提炼由 Agent 完成。"}
 
     def status(self):
         from .chatgpt import capture_status

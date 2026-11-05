@@ -129,7 +129,7 @@ python3 personal-agent -w ~/PersonalContext digest record '/实际回执.json'
 python3 personal-agent -w ~/PersonalContext feedback --page 'wiki/想法与选择/目标与选择.md' --section '当前目标' --text '本人明确的新目标'
 ```
 
-feedback 直接保存当前本人确认，同名章节替换，原表达作为来源保留。自动推断仍由 Agent 根据真实材料维护。feedback、digest record、collect 和 sync 写入后会刷新已创建的 dot 日常入口，无需另跑 dot。
+feedback 直接保存当前本人确认，同名章节替换，原表达作为来源保留；返回的 next_action 提醒当前 Agent 读取受影响详情与概述，只有当前认识变化时用 digest record 同轮保存局部概述、主题概述或基本信息简要。概述由 Agent 语义提炼，并在各页保留实际来源；feedback 本身只修改指定条目。feedback、digest record、collect 和 sync 写入后会刷新已创建的 dot 日常入口，无需另跑 dot。
 
 ## 停止使用与撤回
 

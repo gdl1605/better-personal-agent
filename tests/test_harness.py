@@ -299,6 +299,10 @@ class HarnessTests(unittest.TestCase):
         self.assertTrue(Path(result['entry']).exists())
         self.assertEqual(load(result['binding'])['workspace'], str(root.resolve()))
         self.assertEqual(Workspace(root).config['goals'], ['先整理自己的目标'])
+        brief = (Workspace(root).context / 'wiki/关于用户/基本信息简要.md').read_text()
+        self.assertIn('先整理自己的目标', brief)
+        provenance = load(root / 'state/wiki-provenance.json')['pages']['wiki/关于用户/基本信息简要.md']
+        self.assertEqual(provenance['source_keys'], ['manual:profile'])
         self.assertEqual(result['digestion']['reviewed_current'], 0)
         self.assertEqual(set(result['automation']['tasks']), {'maintenance', 'calibration'})
         self.assertTrue(all(t['status'] == 'awaiting_platform_schedule' for t in result['automation']['tasks'].values()))
